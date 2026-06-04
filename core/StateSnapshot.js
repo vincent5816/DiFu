@@ -9,6 +9,7 @@ class StateSnapshot {
       player: StateSnapshot.createPlayerSnapshot(scene),
       location: StateSnapshot.createLocationSnapshot(scene),
       vision: StateSnapshot.createVisionSnapshot(scene),
+      knownEnemies: StateSnapshot.createKnownEnemySnapshot(scene),
       combat: StateSnapshot.createCombatSnapshot(scene),
       strategyConfig: StateSnapshot.createStrategyConfigSnapshot(scene)
     };
@@ -26,10 +27,28 @@ class StateSnapshot {
       mp: player.mp,
       maxMp: player.maxMp,
       gold: player.gold,
+      x: Math.round(player.sprite.x),
+      y: Math.round(player.sprite.y),
+      facing: player.facing || 1,
+      currentTargetId: player.currentTargetId || null,
+      currentMovementAction: player.currentMovementAction || null,
+      movementActionRemainingMs: StateSnapshot.getRemainingMs(scene, player.movementActionUntil),
+      isMoving: StateSnapshot.isPlayerMoving(scene),
+      isAttacking: Boolean(player.isAttacking),
+      currentAttackAction: player.currentAttackAction || null,
+      attackActionRemainingMs: StateSnapshot.getRemainingMs(scene, player.attackActionUntil),
       isJumping: Boolean(player.isJumping),
+      isDashing: Boolean(player.isDashing),
+      isDefending: Boolean(player.isDefending),
+      isInvincible: Boolean(player.isInvincible),
+      canDoubleJump: Boolean(player.isJumping && !player.doubleJumpUsed),
+      dashCooldownMs: player.dashCooldownMs || 5000,
+      dashCooldownRemainingMs: Math.max(0, (player.dashCooldownMs || 5000) - (scene.time.now - player.lastDashAt)),
+      defendRemainingMs: player.isDefending ? Math.max(0, Math.ceil(player.defendingUntil - scene.time.now)) : 0,
       attackDamage: player.attackDamage,
       attackRange: player.attackRange,
       attackCooldownMs: player.attackCooldownMs,
+      attackCooldownRemainingMs: Math.max(0, (player.attackCooldownMs || 0) - (scene.time.now - player.lastAttackAt)),
       buffs: player.buffs.map((buff) => ({
         type: buff.type,
         remainingTime: buff.remainingTime
@@ -49,6 +68,29 @@ class StateSnapshot {
     };
   }
 
+  static getRemainingMs(scene, until) {
+    if (until === Infinity) {
+      return Infinity;
+    }
+
+    if (!Number.isFinite(until)) {
+      return 0;
+    }
+
+    return Math.max(0, Math.ceil(until - scene.time.now));
+  }
+
+  static isPlayerMoving(scene) {
+    const player = scene.player;
+    return Boolean(
+      player.currentMovementAction ||
+      player.manualMove ||
+      player.isJumping ||
+      player.isDashing ||
+      scene.isRetreating
+    );
+  }
+
   static createLocationSnapshot(scene) {
     return {
       floor: scene.currentFloor,
@@ -61,15 +103,44 @@ class StateSnapshot {
   static createVisionSnapshot(scene) {
     return scene.entities
       .filter((entity) => entity.active && StateSnapshot.isInVision(scene.player, entity, scene.visionRadius))
-      .map((entity) => ({
-        id: entity.id,
-        type: entity.type,
-        hp: entity.hp === undefined ? null : entity.hp,
-        maxHp: entity.maxHp === undefined ? null : entity.maxHp,
-        direction: StateSnapshot.getDirection(scene.player, entity),
-        distance: StateSnapshot.getDistance(scene.player, entity),
-        combatState: entity.combatState ? entity.combatState.phase : null
-      }));
+      .map((entity) => {
+        const attackDistance = StateSnapshot.getAttackDistance(scene, entity);
+        const attackRange = scene.player.attackRange || 0;
+        return {
+          id: entity.id,
+          type: entity.type,
+          hp: entity.hp === undefined ? null : entity.hp,
+          maxHp: entity.maxHp === undefined ? null : entity.maxHp,
+          direction: StateSnapshot.getDirection(scene.player, entity),
+          distance: StateSnapshot.getDistance(scene.player, entity),
+          attackDistance: attackDistance === null ? null : Math.ceil(attackDistance),
+          attackRange,
+          inAttackRange: attackDistance !== null && attackDistance <= attackRange,
+          combatState: entity.combatState ? entity.combatState.phase : null
+        };
+      });
+  }
+
+  static createKnownEnemySnapshot(scene) {
+    return scene.entities
+      .filter((entity) => entity.active && entity.kind === 'enemy' && entity.sprite)
+      .map((entity) => {
+        const attackDistance = StateSnapshot.getAttackDistance(scene, entity);
+        const attackRange = scene.player.attackRange || 0;
+        return {
+          id: entity.id,
+          type: entity.type,
+          hp: entity.hp === undefined ? null : entity.hp,
+          maxHp: entity.maxHp === undefined ? null : entity.maxHp,
+          direction: StateSnapshot.getDirection(scene.player, entity),
+          distance: StateSnapshot.getDistance(scene.player, entity),
+          attackDistance: attackDistance === null ? null : Math.ceil(attackDistance),
+          attackRange,
+          inAttackRange: attackDistance !== null && attackDistance <= attackRange,
+          visible: StateSnapshot.isInVision(scene.player, entity, scene.visionRadius),
+          combatState: entity.combatState ? entity.combatState.phase : null
+        };
+      });
   }
 
   static createCombatSnapshot(scene) {
@@ -132,6 +203,23 @@ class StateSnapshot {
       return 'mid';
     }
     return 'far';
+  }
+
+  static getAttackDistance(scene, entity) {
+    if (entity.kind !== 'enemy') {
+      return null;
+    }
+
+    if (scene.combatSystem && typeof scene.combatSystem.getPlayerEntityBoundsDistance === 'function') {
+      return scene.combatSystem.getPlayerEntityBoundsDistance(entity);
+    }
+
+    return Phaser.Math.Distance.Between(
+      scene.player.sprite.x,
+      scene.player.sprite.y,
+      entity.sprite.x,
+      entity.sprite.y
+    );
   }
 }
 

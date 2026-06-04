@@ -1,21 +1,24 @@
 class CommandExecutor {
   constructor(scene) {
     this.scene = scene;
-    this.validActions = new Set([
+    this.canonicalActions = new Set([
       'MOVE',
+      'JUMP',
+      'DOUBLE_JUMP',
+      'DASH',
       'ATTACK',
-      'USE_SKILL',
+      'DEFEND',
       'OPEN',
-      'SKIP',
       'PICKUP',
-      'DROP',
+      'DISCARD',
       'RETREAT',
       'WAIT'
     ]);
   }
 
   execute(command, snapshot) {
-    if (!command || !this.validActions.has(command.action)) {
+    command = this.normalizeCommand(command);
+    if (!command || !this.canonicalActions.has(command.action)) {
       console.warn('[CommandExecutor] Unknown command ignored:', command);
       this.scene.addLog(`Command ignored: ${command ? command.action : 'empty'}`);
       return;
@@ -26,31 +29,42 @@ class CommandExecutor {
       action: command.action,
       eventType: snapshot.event.type,
       targetId: command.targetId || null,
-      itemId: command.itemId || null
+      itemId: command.itemId || null,
+      direction: command.direction || null,
+      method: command.method || null,
+      durationMs: command.durationMs || null,
+      stopAtAttackRange: Boolean(command.stopAtAttackRange),
+      agentSource: command.agentSource || null
     });
     this.scene.addLog(`Execute: ${command.action}`);
 
     switch (command.action) {
       case 'MOVE':
-        this.move(command.direction, snapshot);
+        this.move(command, snapshot);
+        break;
+      case 'JUMP':
+        this.jump();
+        break;
+      case 'DOUBLE_JUMP':
+        this.doubleJump();
+        break;
+      case 'DASH':
+        this.dash(command.direction);
         break;
       case 'ATTACK':
-        this.attack(command.targetId);
+        this.attack(command.targetId, command.method || 'normal');
         break;
-      case 'USE_SKILL':
-        this.useSkill(command.targetId);
+      case 'DEFEND':
+        this.defend();
         break;
       case 'OPEN':
         this.open(command.targetId);
         break;
-      case 'SKIP':
-        this.skip(command.targetId);
-        break;
       case 'PICKUP':
         this.pickup(command.targetId);
         break;
-      case 'DROP':
-        this.drop(command.itemId);
+      case 'DISCARD':
+        this.discard(command.itemId);
         break;
       case 'RETREAT':
         this.retreat();
@@ -63,24 +77,63 @@ class CommandExecutor {
     }
   }
 
-  move(direction, snapshot) {
-    console.log('[CommandExecutor] MOVE:', direction);
-    const isCombatBackstep = snapshot &&
-      snapshot.event.type === 'STATE_COMBAT_THREAT' &&
-      snapshot.event.details &&
-      snapshot.event.details.threatType === 'ENEMY_WINDUP' &&
-      snapshot.event.details.attackType === 'melee' &&
-      direction === 'left';
+  normalizeCommand(command) {
+    if (!command) {
+      return command;
+    }
 
-    this.scene.movePlayer(direction, {
-      combatBackstep: isCombatBackstep,
-      sourceId: isCombatBackstep ? snapshot.event.entityId : null
+    const normalized = { ...command };
+    if (normalized.action === 'USE_SKILL') {
+      normalized.action = 'JUMP';
+    }
+    if (normalized.action === 'DROP') {
+      normalized.action = 'DISCARD';
+    }
+    return normalized;
+  }
+
+  interruptDefend(action) {
+    if (!this.scene.player.isDefending) {
+      return;
+    }
+
+    this.scene.player.isDefending = false;
+    this.scene.player.defendingUntil = -Infinity;
+    this.scene.addLog(`DEFEND interrupted by ${action}`);
+  }
+
+  move(command, snapshot) {
+    console.log('[CommandExecutor] MOVE:', command.direction);
+    if (command.stopAtAttackRange && command.targetId && this.isTargetInPlayerAttackRange(command.targetId)) {
+      this.scene.recordRunEvent('PLAYER_MOVE_IGNORED', {
+        action: 'MOVE',
+        reason: 'already_in_attack_range',
+        targetId: command.targetId
+      });
+      this.attack(command.targetId, 'normal');
+      return;
+    }
+
+    this.scene.movePlayer(command.direction, {
+      durationMs: command.durationMs,
+      interruptOnVisibleEnemy: snapshot && snapshot.event && snapshot.event.type === 'STATE_NEW_ROOM',
+      sourceEventType: snapshot && snapshot.event ? snapshot.event.type : null,
+      targetId: command.targetId || null,
+      stopAtAttackRange: Boolean(command.stopAtAttackRange),
+      threatType: snapshot && snapshot.event && snapshot.event.details
+        ? snapshot.event.details.threatType
+        : null
     });
   }
 
-  attack(targetId) {
-    console.log('[CommandExecutor] ATTACK:', targetId);
-    const target = this.scene.entities.find((entity) => entity.id === targetId && entity.active);
+  attack(targetId, method = 'normal') {
+    console.log('[CommandExecutor] ATTACK:', targetId, method);
+    if (method !== 'normal' && method !== 'skill') {
+      this.scene.addLog(`ATTACK ignored: bad method ${method}`);
+      return;
+    }
+
+    const target = this.getTargetById(targetId);
     if (!target) {
       console.warn('[CommandExecutor] ATTACK target not found:', targetId);
       return;
@@ -93,6 +146,8 @@ class CommandExecutor {
     }
 
     const now = this.scene.time.now;
+    this.scene.player.currentTargetId = target.id;
+    this.scene.player.facing = target.sprite.x < this.scene.player.sprite.x ? -1 : 1;
     const cooldownRemaining = this.scene.player.attackCooldownMs - (now - this.scene.player.lastAttackAt);
     if (cooldownRemaining > 0) {
       this.scene.recordRunEvent('PLAYER_ATTACK_FAILED', {
@@ -105,13 +160,11 @@ class CommandExecutor {
       return;
     }
 
-    const distance = Phaser.Math.Distance.Between(
-      this.scene.player.sprite.x,
-      this.scene.player.sprite.y,
-      target.sprite.x,
-      target.sprite.y
-    );
+    const distance = this.getAttackDistanceToTarget(target);
+    this.scene.player.facing = target.sprite.x < this.scene.player.sprite.x ? -1 : 1;
     this.scene.player.lastAttackAt = now;
+    this.interruptDefend('ATTACK');
+    this.startAttackAction(method);
 
     if (distance > this.scene.player.attackRange) {
       this.showPlayerAttackSwing(target, false, distance);
@@ -127,18 +180,27 @@ class CommandExecutor {
     }
 
     this.showPlayerAttackSwing(target, true, distance);
-    target.hp = Math.max(0, (target.hp || 0) - this.scene.player.attackDamage);
+    const damage = method === 'skill'
+      ? this.scene.player.attackDamage
+      : this.scene.player.attackDamage;
+    target.hp = Math.max(0, (target.hp || 0) - damage);
     this.scene.recordRunEvent('PLAYER_ATTACKED', {
       targetId,
-      damage: this.scene.player.attackDamage,
+      method,
+      damage,
+      distance: Math.ceil(distance),
+      range: this.scene.player.attackRange,
       targetHp: target.hp,
       targetMaxHp: target.maxHp
     });
-    this.showCombatText(`-${this.scene.player.attackDamage}`, target.sprite.x, target.sprite.y - 34, '#99ffd8');
-    this.scene.addLog(`ATTACK hit: ${targetId} -${this.scene.player.attackDamage} HP (${target.hp}/${target.maxHp})`);
+    this.showCombatText(`-${damage}`, target.sprite.x, target.sprite.y - 34, '#99ffd8');
+    this.scene.addLog(`ATTACK hit: ${targetId} -${damage} HP (${target.hp}/${target.maxHp})`);
     this.scene.showStatus(`ATTACK hit: ${target.hp}/${target.maxHp}`);
 
     if (target.hp > 0) {
+      if (this.scene.combatSystem) {
+        this.scene.combatSystem.applyHitReaction(target, this.scene.player);
+      }
       return;
     }
 
@@ -166,21 +228,55 @@ class CommandExecutor {
       targetId: target.id,
       type: target.type
     });
+    if (target.type === 'boss_floor1') {
+      this.scene.unlockBossReturnPoint();
+    }
     this.scene.showStatus('ENEMY defeated: loot dropped');
     this.scene.addLog(`ENEMY defeated: ${target.id}`);
   }
 
-  useSkill(targetId) {
-    console.log('[CommandExecutor] USE_SKILL:', targetId);
+  jump() {
+    console.log('[CommandExecutor] JUMP');
     const didUseSkill = this.scene.jumpPlayer();
     if (!didUseSkill) {
       this.scene.recordRunEvent('REACTION_IGNORED', {
-        action: 'USE_SKILL',
-        reason: 'already_jumping',
-        targetId: targetId || null
+        action: 'JUMP',
+        reason: 'already_jumping'
       });
-      this.scene.addLog('USE_SKILL ignored: already jumping');
+      this.scene.addLog('JUMP ignored');
     }
+  }
+
+  doubleJump() {
+    console.log('[CommandExecutor] DOUBLE_JUMP');
+    if (!this.scene.doubleJumpPlayer()) {
+      this.scene.recordRunEvent('REACTION_IGNORED', {
+        action: 'DOUBLE_JUMP',
+        reason: 'not_available'
+      });
+    }
+  }
+
+  dash(direction = 'right') {
+    console.log('[CommandExecutor] DASH:', direction);
+    if (!this.scene.dashPlayer(direction)) {
+      this.scene.recordRunEvent('REACTION_IGNORED', {
+        action: 'DASH',
+        reason: 'not_available',
+        direction
+      });
+    }
+  }
+
+  defend() {
+    console.log('[CommandExecutor] DEFEND');
+    this.scene.player.isDefending = true;
+    this.scene.player.defendingUntil = this.scene.time.now + 3000;
+    this.scene.addLog('DEFEND started');
+    this.scene.recordRunEvent('PLAYER_DEFENDED', {
+      durationMs: 3000,
+      damageReduction: 0.5
+    });
   }
 
   open(targetId) {
@@ -191,14 +287,15 @@ class CommandExecutor {
       return;
     }
 
-    target.active = false;
-    target.sprite.destroy();
-    if (target.label) {
-      target.label.destroy();
-    }
+    this.interruptDefend('OPEN');
 
     if (target.kind === 'chest') {
       this.scene.player.gold += target.gold || 0;
+      if (this.scene.spawnLoot) {
+        const lootX = target.sprite.x - 48;
+        const lootY = target.sprite.y + (target.sprite.height || 38) / 2 + 18;
+        this.scene.spawnLoot(lootX, lootY);
+      }
       if (target.buff) {
         this.scene.player.buffs.push({
           type: target.buff,
@@ -211,12 +308,6 @@ class CommandExecutor {
     this.scene.eventSystem.markEntityResolved(targetId);
     this.scene.showStatus(`OPEN resolved: ${targetId}`);
     this.scene.addLog(`OPEN resolved: +${target.gold || 0} paper money`);
-  }
-
-  skip(targetId) {
-    console.log('[CommandExecutor] SKIP:', targetId);
-    this.scene.eventSystem.markEntityResolved(targetId);
-    this.scene.addLog(`SKIP resolved: ${targetId}`);
   }
 
   pickup(targetId) {
@@ -232,6 +323,7 @@ class CommandExecutor {
       return;
     }
 
+    this.interruptDefend('PICKUP');
     target.active = false;
     target.sprite.destroy();
     if (target.label) {
@@ -248,23 +340,33 @@ class CommandExecutor {
     this.scene.addLog(`PICKUP resolved: ${target.quality} item`);
   }
 
-  drop(itemId) {
-    console.log('[CommandExecutor] DROP:', itemId);
+  discard(itemId) {
+    console.log('[CommandExecutor] DISCARD:', itemId);
     const removed = this.scene.inventorySystem.remove(itemId);
     if (!removed) {
-      console.warn('[CommandExecutor] DROP item not found:', itemId);
-      this.scene.addLog(`DROP failed: ${itemId} not found`);
+      console.warn('[CommandExecutor] DISCARD item not found:', itemId);
+      this.scene.addLog(`DISCARD failed: ${itemId} not found`);
       return;
     }
 
+    this.interruptDefend('DISCARD');
     this.scene.eventSystem.clearStateEvent('STATE_BAG_FULL');
     this.scene.updateHud();
-    this.scene.showStatus(`DROP resolved: ${itemId}`);
-    this.scene.addLog(`DROP resolved: ${itemId}`);
+    this.scene.showStatus(`DISCARD resolved: ${itemId}`);
+    this.scene.addLog(`DISCARD resolved: ${itemId}`);
   }
 
   retreat() {
     console.log('[CommandExecutor] RETREAT');
+    if (this.scene.hasActiveBoss && this.scene.hasActiveBoss()) {
+      this.scene.recordRunEvent('RETREAT_BLOCKED', {
+        reason: 'boss_alive'
+      });
+      this.scene.showStatus('RETREAT blocked: defeat the Boss first');
+      this.scene.addLog('RETREAT blocked: Boss is still alive');
+      return;
+    }
+    this.interruptDefend('RETREAT');
     this.scene.startRetreat();
   }
 
@@ -282,6 +384,47 @@ class CommandExecutor {
     if (this.scene.combatSystem) {
       this.scene.combatSystem.showPlayerAttackSwing(target, didHit, distance);
     }
+  }
+
+  getAttackDistanceToTarget(target) {
+    if (this.scene.combatSystem) {
+      return this.scene.combatSystem.getPlayerEntityBoundsDistance(target);
+    }
+
+    return Phaser.Math.Distance.Between(
+      this.scene.player.sprite.x,
+      this.scene.player.sprite.y,
+      target.sprite.x,
+      target.sprite.y
+    );
+  }
+
+  getTargetById(targetId) {
+    return this.scene.entities.find((entity) => entity.id === targetId && entity.active) || null;
+  }
+
+  isTargetInPlayerAttackRange(targetId) {
+    const target = this.getTargetById(targetId);
+    if (!target || target.kind !== 'enemy') {
+      return false;
+    }
+
+    return this.getAttackDistanceToTarget(target) <= this.scene.player.attackRange;
+  }
+
+  startAttackAction(method) {
+    const durationMs = 260;
+    const until = this.scene.time.now + durationMs;
+    this.scene.player.isAttacking = true;
+    this.scene.player.currentAttackAction = method === 'skill' ? 'SKILL_ATTACK' : 'ATTACK';
+    this.scene.player.attackActionUntil = until;
+    this.scene.time.delayedCall(durationMs, () => {
+      if (this.scene.player.attackActionUntil <= until) {
+        this.scene.player.isAttacking = false;
+        this.scene.player.currentAttackAction = null;
+        this.scene.player.attackActionUntil = -Infinity;
+      }
+    });
   }
 }
 

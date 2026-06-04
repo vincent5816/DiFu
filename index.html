@@ -32,6 +32,7 @@
         flex-direction: column;
         width: auto;
         max-width: none;
+        height: calc(100vh - 48px);
         max-height: calc(100vh - 48px);
         overflow: hidden;
         padding: 18px;
@@ -43,7 +44,7 @@
 
       .strategy-editor textarea {
         width: 100%;
-        flex: 1;
+        flex: 1 1 180px;
         min-height: 120px;
         box-sizing: border-box;
         resize: vertical;
@@ -60,14 +61,19 @@
         flex-wrap: wrap;
         flex: 0 0 auto;
         margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(140, 128, 108, 0.28);
       }
 
       .strategy-config {
-        flex: 0 0 auto;
+        flex: 0 1 auto;
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         gap: 10px;
+        max-height: 32vh;
         margin-bottom: 12px;
+        overflow: auto;
+        padding-right: 4px;
       }
 
       .strategy-config-group {
@@ -86,6 +92,10 @@
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
         gap: 10px;
+      }
+
+      .strategy-config-fields-single {
+        grid-template-columns: 1fr;
       }
 
       .strategy-rule-row {
@@ -108,6 +118,12 @@
         font-size: 13px;
         line-height: 34px;
         white-space: nowrap;
+      }
+
+      .strategy-rule-empty {
+        padding: 10px 0;
+        color: #8f887b;
+        font-size: 13px;
       }
 
       .strategy-config label {
@@ -145,6 +161,111 @@
         color: #ff9d8f;
         font: 13px/1.4 Consolas, "Courier New", monospace;
       }
+
+      .game-dom-panel {
+        position: fixed;
+        inset: 24px;
+        z-index: 900;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        overflow: hidden;
+        box-sizing: border-box;
+        padding: 24px;
+        background: rgba(18, 18, 22, 0.97);
+        border: 1px solid #5a554c;
+        color: #f4f1e8;
+        font: 15px/1.55 Arial, "Microsoft YaHei", sans-serif;
+      }
+
+      .game-dom-header h1 {
+        margin: 0 0 8px;
+        font-size: 30px;
+        line-height: 1.2;
+        font-weight: 700;
+      }
+
+      .game-dom-header p {
+        margin: 0;
+        color: #8f887b;
+      }
+
+      .game-dom-panel h2 {
+        margin: 0 0 8px;
+        font-size: 18px;
+        line-height: 1.35;
+        color: #f2eee2;
+      }
+
+      .game-dom-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: auto;
+        color: #8f887b;
+        font-size: 14px;
+      }
+
+      .codex-entries,
+      .return-grid {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .codex-entry {
+        padding: 14px 0;
+        border-bottom: 1px solid rgba(140, 128, 108, 0.35);
+      }
+
+      .codex-entry h2 {
+        margin-bottom: 4px;
+      }
+
+      .codex-entry h2 span {
+        color: #8f887b;
+        font-size: 13px;
+        font-weight: 400;
+      }
+
+      .codex-entry .meta,
+      .summary-line,
+      .muted {
+        color: #8f887b;
+      }
+
+      .return-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+        gap: 28px;
+      }
+
+      .return-grid section {
+        min-width: 0;
+      }
+
+      .item-list,
+      .event-list {
+        display: grid;
+        gap: 6px;
+        margin: 8px 0 18px;
+      }
+
+      .event-list {
+        color: #d8d0c0;
+        font-size: 14px;
+      }
+
+      .identify-line {
+        color: #ffd98a;
+      }
+
+      .success {
+        color: #99ffd8 !important;
+      }
+
+      .danger {
+        color: #ff9d8f !important;
+      }
     </style>
   </head>
   <body>
@@ -152,38 +273,43 @@
 
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
 
-    <script src="core/AgentRunner.js"></script>
-    <script src="core/StrategyConfig.js"></script>
-    <script src="core/StrategyCompiler.js"></script>
-    <script src="core/StateSnapshot.js"></script>
-    <script src="core/EventSystem.js"></script>
-    <script src="core/CommandExecutor.js"></script>
+    <script>
+      window.HELL_SURVIVAL_CODE_VERSION = '2026-06-04-realtime-chase-commands';
+    </script>
 
-    <script src="data/enemies/enemies.js"></script>
-    <script src="data/player/player.js"></script>
-    <script src="data/floors/floor1.js"></script>
+    <script src="core/StrategyCompiler.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="core/AgentRunner.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="core/StrategyConfig.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="core/StateSnapshot.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="core/EventSystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="core/CommandExecutor.js?v=2026-06-04-realtime-chase-commands"></script>
 
-    <script src="systems/CombatSystem.js"></script>
-    <script src="systems/InventorySystem.js"></script>
-    <script src="systems/HazardSystem.js"></script>
-    <script src="systems/LootSystem.js"></script>
-    <script src="systems/MapSystem.js"></script>
-    <script src="systems/MovementSystem.js"></script>
-    <script src="systems/ProgressSystem.js"></script>
-    <script src="systems/RunRecorder.js"></script>
-    <script src="systems/SettlementSystem.js"></script>
-    <script src="systems/StorageSystem.js"></script>
-    <script src="ui/HUD.js"></script>
-    <script src="ui/ReplayFormatter.js"></script>
+    <script src="data/enemies/enemies.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="data/player/player.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="data/floors/floor1.js?v=2026-06-04-realtime-chase-commands"></script>
 
-    <script src="scenes/BootScene.js"></script>
-    <script src="scenes/MenuScene.js"></script>
-    <script src="scenes/DungeonScene.js"></script>
-    <script src="scenes/ReturnScene.js"></script>
-    <script src="scenes/ReplayScene.js"></script>
-    <script src="scenes/CodexScene.js"></script>
-    <script src="scenes/StorageScene.js"></script>
+    <script src="systems/CombatSystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/InventorySystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/HazardSystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/LootSystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/MapSystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/MovementSystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/ProgressSystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/RunRecorder.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/SettlementSystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/StorageSystem.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="ui/HUD.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="ui/AgentReplayIndex.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="ui/ReplayFormatter.js?v=2026-06-04-realtime-chase-commands"></script>
 
-    <script src="game.js"></script>
+    <script src="scenes/BootScene.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="scenes/MenuScene.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="scenes/DungeonScene.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="scenes/ReturnScene.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="scenes/ReplayScene.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="scenes/CodexScene.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="scenes/StorageScene.js?v=2026-06-04-realtime-chase-commands"></script>
+
+    <script src="game.js?v=2026-06-04-realtime-chase-commands"></script>
   </body>
 </html>

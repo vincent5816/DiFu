@@ -10,8 +10,9 @@ class DungeonScene extends Phaser.Scene {
     this.returnPointDistance = 'far';
     this.visionRadius = 170;
     this.encounterRadius = 120;
-    this.autoAdvanceSpeed = 58;
+    this.autoAdvanceSpeed = 100;
     this.isEncounterLocked = false;
+    this.isPlayerCombatEngaged = false;
     this.isRunComplete = false;
     this.pendingNewRoomEvent = false;
     this.strategyConfig = window.hellSurvivalStrategyConfig || StrategyConfig.load();
@@ -35,7 +36,7 @@ class DungeonScene extends Phaser.Scene {
     this.updateHud();
     this.checkDeath();
     this.updateRetreat();
-    this.updateCombatHold();
+    this.updateManualMove();
     this.autoAdvance();
     this.eventSystem.update();
   }
@@ -43,11 +44,6 @@ class DungeonScene extends Phaser.Scene {
   createPlayer() {
     const data = PlayerData;
     const sprite = this.add.rectangle(180, 270, data.width, data.height, data.fillColor);
-    const meleeHitRange = EnemyData.skeleton_guard &&
-      EnemyData.skeleton_guard.combat &&
-      EnemyData.skeleton_guard.combat.hitRange
-      ? EnemyData.skeleton_guard.combat.hitRange
-      : data.attackRange;
     this.player = {
       id: data.id,
       sprite,
@@ -60,9 +56,29 @@ class DungeonScene extends Phaser.Scene {
       mp: data.mp,
       maxMp: data.maxMp,
       attackDamage: data.attackDamage,
-      attackRange: meleeHitRange,
+      attackRange: data.attackRange,
       attackCooldownMs: data.attackCooldownMs,
       lastAttackAt: -Infinity,
+      facing: 1,
+      currentTargetId: null,
+      manualMove: null,
+      manualMoveGraceUntil: -Infinity,
+      currentMovementAction: null,
+      movementActionUntil: -Infinity,
+      currentAttackAction: null,
+      attackActionUntil: -Infinity,
+      isAttacking: false,
+      isDashing: false,
+      lastDashAt: -Infinity,
+      dashCooldownMs: 5000,
+      dashInvulnerableUntil: -Infinity,
+      damageInvulnerableUntil: -Infinity,
+      isDefending: false,
+      defendingUntil: -Infinity,
+      isInvincible: false,
+      invincibleStoredHp: null,
+      invincibleStoredMaxHp: null,
+      doubleJumpUsed: false,
       gold: data.gold,
       buffs: data.buffs.map((buff) => ({ ...buff })),
       bag: {
@@ -94,6 +110,9 @@ class DungeonScene extends Phaser.Scene {
     this.lootSystem = new LootSystem(this);
     this.movementSystem = new MovementSystem(this);
     this.runRecorder = new RunRecorder(this);
+    this.recordRunEvent('RUN_CODE_VERSION', {
+      codeVersion: window.HELL_SURVIVAL_CODE_VERSION || null
+    });
     this.settlementSystem = new SettlementSystem(this);
     this.agentRunner = new AgentRunner();
     this.commandExecutor = new CommandExecutor(this);
@@ -118,6 +137,35 @@ class DungeonScene extends Phaser.Scene {
 
   recordRunEvent(type, details = {}) {
     this.runRecorder.record(type, details);
+    if (details.sourceType) {
+      ProgressSystem.recordObservedEvent(details.sourceType, type, details);
+    }
+  }
+
+  hasActiveBoss() {
+    return this.entities.some((entity) => {
+      return entity.active && entity.kind === 'enemy' && entity.type === 'boss_floor1';
+    });
+  }
+
+  unlockBossReturnPoint() {
+    const returnPoint = this.entities.find((entity) => {
+      return entity.kind === 'return_point' && entity.lockedUntilBossDefeated;
+    });
+
+    if (!returnPoint || returnPoint.active) {
+      return;
+    }
+
+    returnPoint.active = true;
+    this.mapSystem.setEntityVisible(returnPoint, true);
+    this.returnPointKnown = false;
+    this.returnPointDistance = 'far';
+    this.recordRunEvent('BOSS_RETURN_POINT_UNLOCKED', {
+      entityId: returnPoint.id
+    });
+    this.showStatus('Boss defeated: return point appeared');
+    this.addLog(`Boss return point unlocked: ${returnPoint.id}`);
   }
 
   createLabels() {
@@ -125,6 +173,109 @@ class DungeonScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-ESC', () => {
       this.scene.start('MenuScene');
     });
+    this.input.keyboard.on('keydown-N', () => {
+      this.skipToNextRoom();
+    });
+    this.input.keyboard.on('keydown-B', () => {
+      this.skipToBossRoom();
+    });
+    this.input.keyboard.on('keydown-P', () => {
+      this.forceBossPhase2();
+    });
+    this.input.keyboard.on('keydown-I', () => {
+      this.toggleInvincible();
+    });
+  }
+
+  toggleInvincible() {
+    const willEnable = !this.player.isInvincible;
+    if (willEnable) {
+      this.player.invincibleStoredHp = this.player.hp;
+      this.player.invincibleStoredMaxHp = this.player.maxHp;
+      this.player.maxHp = 9999;
+      this.player.hp = 9999;
+      this.player.isInvincible = true;
+    } else {
+      this.player.isInvincible = false;
+      if (Number.isFinite(this.player.invincibleStoredMaxHp)) {
+        this.player.maxHp = this.player.invincibleStoredMaxHp;
+      }
+      if (Number.isFinite(this.player.invincibleStoredHp)) {
+        this.player.hp = Phaser.Math.Clamp(this.player.invincibleStoredHp, 1, this.player.maxHp);
+      }
+      this.player.invincibleStoredHp = null;
+      this.player.invincibleStoredMaxHp = null;
+    }
+
+    this.recordRunEvent('PLAYER_INVINCIBLE_TOGGLED', {
+      enabled: this.player.isInvincible,
+      hp: Math.ceil(this.player.hp),
+      maxHp: this.player.maxHp
+    });
+    this.showStatus(`Invincible ${this.player.isInvincible ? 'ON' : 'OFF'}`);
+    this.addLog(`Debug invincible: ${this.player.isInvincible ? 'ON' : 'OFF'}`);
+    this.updateHud();
+  }
+
+  skipToNextRoom() {
+    if (this.isRunComplete) {
+      return;
+    }
+
+    this.isRetreating = false;
+    this.retreatTarget = null;
+    this.isEncounterLocked = false;
+
+    if (!this.mapSystem.loadNextRoom()) {
+      this.showStatus('Debug skip: no next room');
+      this.addLog('Debug skip failed: no next room');
+      return;
+    }
+
+    this.showStatus(`Debug skip: entered ${this.currentRoomId}`);
+    this.addLog(`Debug skip: ${this.currentRoomId}`);
+  }
+
+  skipToBossRoom() {
+    if (this.isRunComplete) {
+      return;
+    }
+
+    const bossRoom = this.mapSystem.floorData.rooms.find((room) => {
+      return room.entities.some((entity) => entity.kind === 'enemy' && entity.type === 'boss_floor1');
+    });
+    if (!bossRoom) {
+      this.showStatus('Debug boss skip failed: no boss room');
+      this.addLog('Debug boss skip failed');
+      return;
+    }
+
+    this.isRetreating = false;
+    this.retreatTarget = null;
+    this.isEncounterLocked = false;
+    this.pendingNewRoomEvent = true;
+    this.mapSystem.loadRoom(bossRoom.id);
+    this.mapSystem.movePlayerToRoomStart(bossRoom);
+    this.showStatus(`Debug skip: entered ${bossRoom.id}`);
+    this.addLog(`Debug boss skip: ${bossRoom.id}`);
+  }
+
+  forceBossPhase2() {
+    const boss = this.entities.find((entity) => entity.active && entity.type === 'boss_floor1');
+    if (!boss) {
+      this.showStatus('Debug phase2 failed: no active boss');
+      this.addLog('Debug phase2 failed: no active boss');
+      return;
+    }
+
+    this.combatSystem.ensureCombatState(boss);
+    const threshold = Math.floor(boss.maxHp * (boss.combat.phase2Threshold || 0.4));
+    boss.hp = Math.max(1, threshold);
+    if (!boss.combatState.phase2Started) {
+      this.combatSystem.startBossPhase2(boss);
+    }
+    this.showStatus(`Debug phase2: Boss HP ${boss.hp}/${boss.maxHp}`);
+    this.addLog(`Debug phase2: ${boss.id}`);
   }
 
   showStatus(message) {
@@ -136,15 +287,23 @@ class DungeonScene extends Phaser.Scene {
   }
 
   movePlayer(direction, options) {
-    this.movementSystem.movePlayer(direction, options);
+    return this.movementSystem.movePlayer(direction, options);
   }
 
   jumpPlayer() {
     return this.movementSystem.jumpPlayer();
   }
 
-  updateCombatHold() {
-    this.movementSystem.updateCombatHold();
+  doubleJumpPlayer() {
+    return this.movementSystem.doubleJumpPlayer();
+  }
+
+  dashPlayer(direction) {
+    return this.movementSystem.dashPlayer(direction);
+  }
+
+  updateManualMove() {
+    this.movementSystem.updateManualMove();
   }
 
   startRetreat() {

@@ -11,6 +11,8 @@ class EventSystem {
     this.stateEventCooldowns = new Map();
     this.activeStateEvents = new Set();
     this.visibleEntityIds = new Set();
+    this.maxCommandPlanLength = 5;
+    this.maxCommandDelayMs = 3000;
   }
 
   update() {
@@ -101,18 +103,89 @@ class EventSystem {
     this.scene.addLog(`Vision: ${this.formatVision(snapshot.vision)}`);
     const command = this.agentRunner.run(snapshot);
     console.log('[AgentRunner] Command returned:', command);
-    this.scene.addLog(`Agent: ${command.action}`);
+    const plan = this.createCommandPlan(command, snapshot);
+    this.scene.addLog(`Agent: ${plan.map((entry) => entry.command.action).join(' -> ')}`);
 
     this.enabled = false;
-    this.scene.time.delayedCall(this.getCommandDelay(event), () => {
-      this.commandExecutor.execute(command, snapshot);
-      this.scene.isEncounterLocked = this.hasBlockingEncounter() || this.hasBlockingState(command, snapshot);
-      this.enabled = true;
+    this.executeCommandPlan(plan, snapshot, event);
+  }
+
+  createCommandPlan(result, snapshot) {
+    const rawEntries = this.extractCommandEntries(result).slice(0, this.maxCommandPlanLength);
+    const entries = rawEntries
+      .map((entry) => this.normalizeCommandEntry(entry, snapshot))
+      .filter((entry) => entry && entry.command);
+
+    if (entries.length === 0) {
+      return [{ delayMs: 0, command: { action: 'WAIT' } }];
+    }
+
+    return entries;
+  }
+
+  extractCommandEntries(result) {
+    if (Array.isArray(result)) {
+      return result;
+    }
+
+    if (result && Array.isArray(result.actions)) {
+      return result.actions;
+    }
+
+    if (result && Array.isArray(result.commands)) {
+      return result.commands;
+    }
+
+    return [result];
+  }
+
+  normalizeCommandEntry(entry, snapshot) {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+
+    const delayMs = Phaser.Math.Clamp(
+      Math.round(Number(entry.delayMs) || 0),
+      0,
+      this.maxCommandDelayMs
+    );
+    const command = entry.command && typeof entry.command === 'object'
+      ? { ...entry.command }
+      : { ...entry };
+    delete command.delayMs;
+    delete command.command;
+
+    if (command.targetId === '$sourceId') {
+      command.targetId = snapshot.event.entityId;
+    }
+    if (command.itemId === '$sourceId') {
+      command.itemId = snapshot.event.entityId;
+    }
+
+    return { delayMs, command };
+  }
+
+  executeCommandPlan(plan, snapshot, event) {
+    const baseDelay = this.getCommandDelay(event);
+    let elapsedDelay = baseDelay;
+    const lastIndex = plan.length - 1;
+
+    plan.forEach((entry, index) => {
+      elapsedDelay += entry.delayMs;
+      this.scene.time.delayedCall(elapsedDelay, () => {
+        this.commandExecutor.execute(entry.command, snapshot);
+        if (index !== lastIndex) {
+          return;
+        }
+
+        this.scene.isEncounterLocked = this.hasBlockingEncounter() || this.hasBlockingState(entry.command, snapshot);
+        this.enabled = true;
+      });
     });
   }
 
   getCommandDelay(event) {
-    if (event.type === 'STATE_COMBAT_THREAT') {
+    if (event.type === 'STATE_COMBAT_THREAT' || event.type === 'ENCOUNTER_ENEMY') {
       return 0;
     }
 
@@ -121,6 +194,14 @@ class EventSystem {
 
   isInEncounterRange(entity) {
     const radius = this.getEncounterRadius(entity);
+    if (
+      entity.kind === 'enemy' &&
+      this.scene.combatSystem &&
+      typeof this.scene.combatSystem.getPlayerEntityBoundsDistance === 'function'
+    ) {
+      return this.scene.combatSystem.getPlayerEntityBoundsDistance(entity) <= radius;
+    }
+
     return Phaser.Math.Distance.Between(
       this.scene.player.sprite.x,
       this.scene.player.sprite.y,
@@ -150,7 +231,7 @@ class EventSystem {
       return entity.active &&
         this.isEncounterKind(entity.kind) &&
         !this.handledEntityEvents.has(entity.id) &&
-        this.isInEncounterRange(entity);
+        this.shouldDispatchEncounter(entity);
     });
   }
 
@@ -160,13 +241,41 @@ class EventSystem {
         return entity.active &&
           this.isEncounterKind(entity.kind) &&
           !this.handledEntityEvents.has(entity.id) &&
-          this.isInEncounterRange(entity);
+          this.shouldDispatchEncounter(entity);
       })
       .sort((a, b) => {
-        const da = Phaser.Math.Distance.Between(this.scene.player.sprite.x, this.scene.player.sprite.y, a.sprite.x, a.sprite.y);
-        const db = Phaser.Math.Distance.Between(this.scene.player.sprite.x, this.scene.player.sprite.y, b.sprite.x, b.sprite.y);
-        return da - db;
+        return this.getEncounterDistance(a) - this.getEncounterDistance(b);
       })[0] || null;
+  }
+
+  shouldDispatchEncounter(entity) {
+    if (this.isActiveCombatEnemyTarget(entity)) {
+      return true;
+    }
+
+    return this.isInEncounterRange(entity);
+  }
+
+  isActiveCombatEnemyTarget(entity) {
+    return entity.kind === 'enemy' &&
+      this.scene.isPlayerCombatEngaged;
+  }
+
+  getEncounterDistance(entity) {
+    if (
+      entity.kind === 'enemy' &&
+      this.scene.combatSystem &&
+      typeof this.scene.combatSystem.getPlayerEntityBoundsDistance === 'function'
+    ) {
+      return this.scene.combatSystem.getPlayerEntityBoundsDistance(entity);
+    }
+
+    return Phaser.Math.Distance.Between(
+      this.scene.player.sprite.x,
+      this.scene.player.sprite.y,
+      entity.sprite.x,
+      entity.sprite.y
+    );
   }
 
   isEncounterKind(kind) {

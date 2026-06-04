@@ -36,7 +36,7 @@ const Floor1Data = {
         {
           id: 'enemy_001',
           kind: 'enemy',
-          type: 'skeleton_archer',
+          type: 'contact_b',
           x: 620,
           y: 270,
           label: {
@@ -73,18 +73,125 @@ const Floor1Data = {
         {
           id: 'enemy_002',
           kind: 'enemy',
-          type: 'skeleton_guard',
+          type: 'contact_a',
           x: 620,
           y: 270,
           label: {
             x: 592,
             y: 330
           }
+        }
+      ]
+    },
+    {
+      id: 'room_003',
+      playerStart: {
+        x: 180,
+        y: 270
+      },
+      zones: {},
+      entities: [
+        {
+          id: 'enemy_003',
+          kind: 'enemy',
+          type: 'melee_a',
+          x: 610,
+          y: 270,
+          label: {
+            x: 580,
+            y: 330
+          }
+        }
+      ]
+    },
+    {
+      id: 'room_004',
+      playerStart: {
+        x: 180,
+        y: 270
+      },
+      zones: {},
+      entities: [
+        {
+          id: 'enemy_004',
+          kind: 'enemy',
+          type: 'ranged_a',
+          x: 620,
+          y: 270,
+          label: {
+            x: 590,
+            y: 330
+          }
+        }
+      ]
+    },
+    {
+      id: 'room_005',
+      playerStart: {
+        x: 180,
+        y: 270
+      },
+      zones: {},
+      entities: [
+        {
+          id: 'enemy_005',
+          kind: 'enemy',
+          type: 'melee_b',
+          x: 640,
+          y: 270,
+          label: {
+            x: 610,
+            y: 330
+          }
+        }
+      ]
+    },
+    {
+      id: 'room_006',
+      playerStart: {
+        x: 180,
+        y: 270
+      },
+      zones: {},
+      entities: [
+        {
+          id: 'enemy_006',
+          kind: 'enemy',
+          type: 'ranged_b',
+          x: 660,
+          y: 270,
+          label: {
+            x: 630,
+            y: 330
+          }
+        }
+      ]
+    },
+    {
+      id: 'room_007',
+      playerStart: {
+        x: 180,
+        y: 270
+      },
+      zones: {},
+      entities: [
+        {
+          id: 'boss_001',
+          kind: 'enemy',
+          type: 'boss_floor1',
+          x: 690,
+          y: 270,
+          label: {
+            x: 648,
+            y: 338
+          }
         },
         {
-          id: 'return_001',
+          id: 'return_002',
           kind: 'return_point',
           type: 'return_gate',
+          active: false,
+          lockedUntilBossDefeated: true,
           x: 850,
           y: 270,
           width: 44,

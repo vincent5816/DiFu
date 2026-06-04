@@ -11,7 +11,7 @@ class HUD {
       color: '#f2eee2'
     });
 
-    this.scene.add.text(48, 510, '按 ESC 返回策略编辑器', {
+    this.scene.add.text(48, 510, 'ESC Menu / N Next / B Boss / P Phase2 / I Invincible', {
       fontSize: '14px',
       color: '#8f887b'
     });
@@ -29,6 +29,19 @@ class HUD {
     this.bagText = this.scene.add.text(48, 100, '', {
       fontSize: '13px',
       color: '#c9c1b1'
+    });
+    this.invincibleButton = this.scene.add.text(360, 60, '', {
+      fontSize: '13px',
+      color: '#8f887b',
+      backgroundColor: '#1c1a22',
+      padding: {
+        x: 8,
+        y: 4
+      }
+    });
+    this.invincibleButton.setInteractive({ useHandCursor: true });
+    this.invincibleButton.on('pointerdown', () => {
+      this.scene.toggleInvincible();
     });
 
     this.logText = this.scene.add.text(700, 32, '', {
@@ -56,6 +69,8 @@ class HUD {
     const ratio = Phaser.Math.Clamp(player.hp / player.maxHp, 0, 1);
     this.hpBar.width = 180 * ratio;
     this.hpText.setText(`HP ${Math.ceil(player.hp)}/${player.maxHp}`);
+    this.invincibleButton.setText(`INVINCIBLE: ${player.isInvincible ? 'ON' : 'OFF'}`);
+    this.invincibleButton.setColor(player.isInvincible ? '#99ffd8' : '#8f887b');
     this.goldText.setText(`纸钱 ${player.gold}`);
     this.bagText.setText(`背包 ${bag.used}/${bag.slots}`);
   }

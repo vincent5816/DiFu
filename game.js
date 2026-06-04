@@ -4,6 +4,7 @@
     parent: 'game',
     width: 960,
     height: 540,
+    resolution: Math.min(window.devicePixelRatio || 1, 2),
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH

@@ -26,6 +26,7 @@ class MapSystem {
     this.scene.deathZone = this.createZone(room.zones.death);
     this.scene.entities = room.entities.map((entity) => this.createEntity(entity));
     this.createDoors(room.doors || []);
+    this.scene.isPlayerCombatEngaged = false;
     this.scene.returnPointKnown = false;
     this.scene.returnPointDistance = 'far';
     return true;
@@ -82,7 +83,8 @@ class MapSystem {
       id: mergedConfig.id,
       kind: mergedConfig.kind,
       type: mergedConfig.type,
-      active: true,
+      active: mergedConfig.active !== false,
+      lockedUntilBossDefeated: Boolean(mergedConfig.lockedUntilBossDefeated),
       hp: mergedConfig.hp || null,
       maxHp: mergedConfig.maxHp || mergedConfig.hp || null,
       gold: mergedConfig.gold || 0,
@@ -105,7 +107,20 @@ class MapSystem {
 
     entity.visuals = this.createEntityVisuals(entity, mergedConfig);
     this.roomObjects.push(entity.sprite, entity.label, ...entity.visuals);
+    this.setEntityVisible(entity, entity.active);
     return entity;
+  }
+
+  setEntityVisible(entity, visible) {
+    if (entity.sprite) {
+      entity.sprite.setVisible(visible);
+    }
+    if (entity.label) {
+      entity.label.setVisible(visible);
+    }
+    if (entity.visuals) {
+      entity.visuals.forEach((visual) => visual.setVisible(visible));
+    }
   }
 
   createEntityVisuals(entity, config) {
@@ -114,8 +129,8 @@ class MapSystem {
     }
 
     if (config.combat.attackType === 'ranged') {
-      const eye = this.scene.add.circle(entity.sprite.x + 12, entity.sprite.y - 16, 7, 0xffd166, 0.95);
-      const bow = this.scene.add.rectangle(entity.sprite.x + 19, entity.sprite.y, 5, 34, 0xffd166, 0.9);
+      const eye = this.createOffsetCircle(entity, 12, -16, 7, 0xffd166, 0.95);
+      const bow = this.createOffsetRectangle(entity, 19, 0, 5, 34, 0xffd166, 0.9);
       bow.setRotation(0.25);
       eye.setDepth(4);
       bow.setDepth(4);
@@ -123,8 +138,8 @@ class MapSystem {
     }
 
     if (config.combat.attackType === 'melee') {
-      const guard = this.scene.add.rectangle(entity.sprite.x + 16, entity.sprite.y - 6, 8, 36, 0xf2eee2, 0.9);
-      const hilt = this.scene.add.rectangle(entity.sprite.x + 10, entity.sprite.y + 9, 18, 5, 0x8f887b, 0.95);
+      const guard = this.createOffsetRectangle(entity, 16, -6, 8, 36, 0xf2eee2, 0.9);
+      const hilt = this.createOffsetRectangle(entity, 10, 9, 18, 5, 0x8f887b, 0.95);
       guard.setRotation(-0.62);
       hilt.setRotation(-0.62);
       guard.setDepth(4);
@@ -132,7 +147,53 @@ class MapSystem {
       return [guard, hilt];
     }
 
+    if (config.combat.attackType === 'contact') {
+      const core = this.createOffsetCircle(entity, 0, 0, 10, 0xf6e05e, 0.7);
+      const shell = this.createOffsetCircle(entity, 0, 0, 18, 0xd6bcfa, 0.18);
+      core.setDepth(4);
+      shell.setDepth(3);
+      return [shell, core];
+    }
+
+    if (config.combat.attackType === 'boss') {
+      const crown = this.createOffsetRectangle(entity, 0, -38, 44, 10, 0xf2eee2, 0.9);
+      const core = this.createOffsetCircle(entity, 0, -8, 16, 0xffd166, 0.65);
+      const bladeA = this.createOffsetRectangle(entity, -26, 4, 8, 56, 0xf2eee2, 0.75);
+      const bladeB = this.createOffsetRectangle(entity, 26, 4, 8, 56, 0xf2eee2, 0.75);
+      bladeA.setRotation(0.18);
+      bladeB.setRotation(-0.18);
+      crown.setDepth(4);
+      core.setDepth(4);
+      bladeA.setDepth(4);
+      bladeB.setDepth(4);
+      return [crown, core, bladeA, bladeB];
+    }
+
+    if (config.combat.attackType === 'charge') {
+      const hornA = this.createOffsetRectangle(entity, -8, -24, 8, 20, 0xffd166, 0.95);
+      const hornB = this.createOffsetRectangle(entity, 8, -24, 8, 20, 0xffd166, 0.95);
+      const core = this.createOffsetCircle(entity, 0, -2, 10, 0xff9fbd, 0.45);
+      hornA.setRotation(-0.45);
+      hornB.setRotation(0.45);
+      hornA.setDepth(4);
+      hornB.setDepth(4);
+      core.setDepth(4);
+      return [hornA, hornB, core];
+    }
+
     return [];
+  }
+
+  createOffsetRectangle(entity, offsetX, offsetY, width, height, fillColor, alpha) {
+    const visual = this.scene.add.rectangle(entity.sprite.x + offsetX, entity.sprite.y + offsetY, width, height, fillColor, alpha);
+    visual._entityOffset = { x: offsetX, y: offsetY };
+    return visual;
+  }
+
+  createOffsetCircle(entity, offsetX, offsetY, radius, fillColor, alpha) {
+    const visual = this.scene.add.circle(entity.sprite.x + offsetX, entity.sprite.y + offsetY, radius, fillColor, alpha);
+    visual._entityOffset = { x: offsetX, y: offsetY };
+    return visual;
   }
 
   mergeEntityConfig(config) {

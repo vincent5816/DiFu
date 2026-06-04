@@ -1,88 +1,115 @@
 class CodexScene extends Phaser.Scene {
   constructor() {
     super('CodexScene');
+    this.page = 0;
+    this.pageSize = 3;
+    this.panel = null;
+    this.entriesRoot = null;
+    this.pageText = null;
   }
 
   create() {
-    const entries = ProgressSystem.listCodexEntries()
+    this.entries = ProgressSystem.listCodexEntries()
       .sort((a, b) => a.type.localeCompare(b.type));
+    this.page = 0;
+    this.createPanel();
+    this.renderPage();
 
-    this.add.text(48, 42, '图鉴', {
-      fontSize: '30px',
-      color: '#f2eee2'
-    });
-
-    this.add.text(48, 82, '已遭遇的怪物会记录在这里。战斗参数来自当前 EnemyData。', {
-      fontSize: '14px',
-      color: '#8f887b'
-    });
-
-    if (entries.length === 0) {
-      this.add.text(48, 128, '尚未解锁任何条目', {
-        fontSize: '16px',
-        color: '#8f887b'
-      });
-    } else {
-      entries.forEach((entry, index) => {
-        this.renderEntry(entry, 48, 128 + index * 128);
-      });
-    }
-
-    this.add.text(48, 690, '按 ESC 返回策略编辑器', {
-      fontSize: '14px',
-      color: '#8f887b'
-    });
-
+    this.input.keyboard.on('keydown-LEFT', () => this.changePage(-1));
+    this.input.keyboard.on('keydown-RIGHT', () => this.changePage(1));
     this.input.keyboard.on('keydown-ESC', () => {
       this.scene.start('MenuScene');
     });
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroyPanel());
   }
 
-  renderEntry(entry, x, y) {
-    const enemy = globalThis.EnemyData && globalThis.EnemyData[entry.type];
-    const name = StrategyConfig.getEnemyDisplayName(entry.type);
-    const unlockedAt = this.formatDate(entry.unlockedAt);
+  createPanel() {
+    this.panel = document.createElement('div');
+    this.panel.className = 'game-dom-panel';
+    this.panel.innerHTML = `
+      <div class="game-dom-header">
+        <h1>图鉴</h1>
+        <p>这里只记录已遭遇怪物的公开事件。具体应对由玩家脚本决定。</p>
+      </div>
+      <div class="codex-entries"></div>
+      <div class="game-dom-footer">
+        <span class="codex-page"></span>
+        <span>按 ← / → 翻页，按 ESC 返回策略编辑器</span>
+      </div>
+    `;
+    document.body.appendChild(this.panel);
+    this.entriesRoot = this.panel.querySelector('.codex-entries');
+    this.pageText = this.panel.querySelector('.codex-page');
+  }
 
-    this.add.text(x, y, `${name}  (${entry.type})`, {
-      fontSize: '18px',
-      color: '#f2eee2'
-    });
-    this.add.text(x, y + 26, `解锁时间：${unlockedAt}`, {
-      fontSize: '13px',
-      color: '#8f887b'
-    });
+  destroyPanel() {
+    if (this.panel) {
+      this.panel.remove();
+      this.panel = null;
+      this.entriesRoot = null;
+      this.pageText = null;
+    }
+  }
 
-    if (!enemy || !enemy.combat) {
-      this.add.text(x, y + 52, '暂无战斗数据', {
-        fontSize: '14px',
-        color: '#c9c1b1'
-      });
+  changePage(delta) {
+    const maxPage = Math.max(0, Math.ceil(this.entries.length / this.pageSize) - 1);
+    this.page = Phaser.Math.Clamp(this.page + delta, 0, maxPage);
+    this.renderPage();
+  }
+
+  renderPage() {
+    this.entriesRoot.innerHTML = '';
+
+    if (this.entries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'muted';
+      empty.textContent = '尚未解锁任何条目';
+      this.entriesRoot.appendChild(empty);
+      this.pageText.textContent = '第 1/1 页';
       return;
     }
 
-    const combat = enemy.combat;
-    const lines = [
-      `生命：${enemy.maxHp || enemy.hp || '-'}    攻击类型：${this.getAttackTypeLabel(combat.attackType)}    伤害：${combat.damage}`,
-      `警戒范围：${combat.range}    命中范围：${combat.hitRange || '-'}    投射物速度：${combat.projectileSpeed || '-'}`,
-      `时间轴：空闲 ${combat.idleMs}ms / 前摇 ${combat.windupMs}ms / 攻击 ${combat.attackMs}ms / 冷却 ${combat.cooldownMs}ms`,
-      `可响应事件：${StrategyConfig.getSupportedEventsForEnemy(entry.type).map((type) => StrategyConfig.getEventDisplayName(type)).join('、')}`
-    ];
+    const start = this.page * this.pageSize;
+    const pageEntries = this.entries.slice(start, start + this.pageSize);
+    pageEntries.forEach((entry) => this.entriesRoot.appendChild(this.createEntryNode(entry)));
 
-    this.add.text(x, y + 52, lines.join('\n'), {
-      fontSize: '14px',
-      lineSpacing: 6,
-      color: '#d8d0c0'
-    });
+    const maxPage = Math.max(1, Math.ceil(this.entries.length / this.pageSize));
+    this.pageText.textContent = `第 ${this.page + 1}/${maxPage} 页  显示 ${start + 1}-${start + pageEntries.length}`;
+  }
+
+  createEntryNode(entry) {
+    const enemy = globalThis.EnemyData && globalThis.EnemyData[entry.type];
+    const combat = enemy && enemy.combat ? enemy.combat : null;
+    const node = document.createElement('section');
+    node.className = 'codex-entry';
+    node.innerHTML = `
+      <h2>${StrategyConfig.getEnemyDisplayName(entry.type)}</h2>
+      <div class="meta">类型：${this.getAttackTypeLabel(combat && combat.attackType)} · 初见：${this.formatDate(entry.unlockedAt)}</div>
+      <div>已观察事件：${this.getObservedEventLabels(entry).join('、') || '暂无'}</div>
+    `;
+    return node;
+  }
+
+  getObservedEventLabels(entry) {
+    const observedEvents = entry.observedEvents || {};
+    return Object.values(observedEvents)
+      .sort((a, b) => a.type.localeCompare(b.type))
+      .map((event) => {
+        const countText = `已观察 ${event.count} 次`;
+        const burstText = event.burstCount ? `，${event.burstCount}连发` : '';
+        return `${StrategyConfig.getEventDisplayName(event.type)}（${countText}${burstText}）`;
+      });
   }
 
   getAttackTypeLabel(type) {
-    if (type === 'melee') {
-      return '近战';
-    }
-    if (type === 'ranged') {
-      return '远程';
-    }
-    return type || '-';
+    const labels = {
+      charge: '冲锋',
+      contact: '接触',
+      melee: '近战',
+      ranged: '远程'
+    };
+    return labels[type] || '-';
   }
 
   formatDate(value) {

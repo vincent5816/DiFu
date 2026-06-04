@@ -10,31 +10,98 @@ class StrategyConfig {
       windupResponseEnabled: false,
       windupResponseAction: 'wait',
       windupReactionDelayMs: 500,
-      projectileResponseEnabled: true,
+      projectileResponseEnabled: false,
       projectileReactionDelayMs: 100,
       combatRules: {
-        skeleton_archer: {
+        ranged_a: {
           ENEMY_WINDUP: {
             responseAction: 'wait',
-            delayMs: 500
+            delayMs: 0
           },
           ENEMY_COOLDOWN: {
             responseAction: 'wait',
             delayMs: 0
           },
           PROJECTILE_SPAWNED: {
-            responseAction: 'jump',
-            delayMs: 100,
+            responseAction: 'wait',
+            delayMs: 0,
             distance: 'near'
           }
         },
-        skeleton_guard: {
+        ranged_b: {
           ENEMY_WINDUP: {
-            responseAction: 'move_left',
-            delayMs: 500
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          ENEMY_COOLDOWN: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          PROJECTILE_SPAWNED: {
+            responseAction: 'wait',
+            delayMs: 0,
+            distance: 'near'
+          }
+        },
+        melee_a: {
+          ENEMY_CHASING: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          ENEMY_WINDUP: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          ENEMY_ATTACKING: {
+            responseAction: 'wait',
+            delayMs: 0
           },
           ENEMY_COOLDOWN: {
             responseAction: 'attack',
+            delayMs: 0
+          }
+        },
+        melee_b: {
+          ENEMY_CHASING: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          ENEMY_WINDUP: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          ENEMY_ATTACKING: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          ENEMY_COOLDOWN: {
+            responseAction: 'attack',
+            delayMs: 0
+          }
+        },
+        boss_floor1: {
+          BOSS_CHARGE_WINDUP: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          BOSS_NORMAL_WINDUP: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          BOSS_NORMAL_COOLDOWN: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          BOSS_TRIPLE_HIT: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          BOSS_STUNNED_A: {
+            responseAction: 'wait',
+            delayMs: 0
+          },
+          BOSS_STUNNED_B: {
+            responseAction: 'wait',
             delayMs: 0
           }
         }
@@ -50,7 +117,26 @@ class StrategyConfig {
 
   static getSupportedEventsForEnemy(enemyType) {
     const enemy = globalThis.EnemyData && globalThis.EnemyData[enemyType];
+    if (enemy && enemy.combat && enemy.combat.attackType === 'contact') {
+      return [];
+    }
+
+    if (enemy && enemy.combat && enemy.combat.behavior === 'boss_floor1') {
+      return [
+        'BOSS_CHARGE_WINDUP',
+        'BOSS_NORMAL_WINDUP',
+        'BOSS_NORMAL_COOLDOWN',
+        'BOSS_TRIPLE_HIT',
+        'BOSS_STUNNED_A',
+        'BOSS_STUNNED_B'
+      ];
+    }
+
     const events = ['ENEMY_WINDUP', 'ENEMY_COOLDOWN'];
+    if (enemy && enemy.combat && enemy.combat.attackType === 'melee') {
+      events.unshift('ENEMY_CHASING');
+      events.splice(2, 0, 'ENEMY_ATTACKING');
+    }
     if (enemy && enemy.combat && enemy.combat.attackType === 'ranged') {
       events.push('PROJECTILE_SPAWNED');
     }
@@ -58,23 +144,76 @@ class StrategyConfig {
   }
 
   static getEnemyDisplayName(enemyType) {
+    const enemy = globalThis.EnemyData && globalThis.EnemyData[enemyType];
+    if (enemy && enemy.displayName) {
+      return enemy.displayName;
+    }
+
     const names = {
-      skeleton_archer: '远程怪',
-      skeleton_guard: '近战怪'
+      ranged_a: '远程怪 A',
+      ranged_b: '远程怪 B',
+      melee_a: '近战怪 A',
+      melee_b: '近战怪 B',
+      boss_floor1: '第一层 Boss'
     };
     return names[enemyType] || enemyType;
   }
 
   static getEventDisplayName(eventType) {
     const names = {
+      ENEMY_CHASING: '追击',
       ENEMY_WINDUP: '前摇',
+      ENEMY_ATTACKING: '攻击中',
       ENEMY_COOLDOWN: '冷却',
-      PROJECTILE_SPAWNED: '投射物生成'
+      PROJECTILE_SPAWNED: '投射物生成',
+      BOSS_CHARGE_WINDUP: 'Boss 冲锋前摇',
+      BOSS_NORMAL_WINDUP: 'Boss 普攻前摇',
+      BOSS_NORMAL_COOLDOWN: 'Boss 普攻冷却',
+      BOSS_TRIPLE_HIT: 'Boss 三连击',
+      BOSS_STUNNED_A: 'Boss 撞墙眩晕',
+      BOSS_STUNNED_B: 'Boss 连击硬直'
     };
     return names[eventType] || eventType;
   }
 
   static getActionOptions(eventType) {
+    if (eventType === 'ENEMY_CHASING') {
+      return [
+        ['wait', '不响应'],
+        ['move_left', '后撤']
+      ];
+    }
+
+    if (eventType === 'BOSS_STUNNED_A' || eventType === 'BOSS_STUNNED_B' || eventType === 'BOSS_NORMAL_COOLDOWN') {
+      return [
+        ['attack', '攻击'],
+        ['move_right', '靠近'],
+        ['wait', '不响应']
+      ];
+    }
+
+    if (eventType === 'BOSS_CHARGE_WINDUP') {
+      return [
+        ['jump', '跳跃'],
+        ['move_left', '后撤'],
+        ['wait', '不响应']
+      ];
+    }
+
+    if (eventType === 'BOSS_NORMAL_WINDUP' || eventType === 'BOSS_TRIPLE_HIT') {
+      return [
+        ['move_left', '后撤'],
+        ['jump', '跳跃'],
+        ['wait', '不响应']
+      ];
+    }
+
+    if (eventType === 'ENEMY_ATTACKING') {
+      return [
+        ['wait', '不响应']
+      ];
+    }
+
     if (eventType === 'ENEMY_COOLDOWN') {
       return [
         ['attack', '攻击'],

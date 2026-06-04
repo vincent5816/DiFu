@@ -37,23 +37,40 @@ class MenuScene extends Phaser.Scene {
     const hpThresholdInput = this.createNumberInput('HP 阈值', savedConfig.hpLowThreshold, 0.05, 0.95, 0.05);
     configPanel.appendChild(this.createConfigGroup('基础', [hpThresholdInput.label]));
 
-    StrategyConfig.getEnemyTypes().forEach((enemyType) => {
-      const fields = [];
+    const enemyTypes = StrategyConfig.getEnemyTypes();
+    const enemySelect = this.createSelectInput('选择怪物', enemyTypes[0], enemyTypes.map((type) => [
+      type,
+      `${StrategyConfig.getEnemyDisplayName(type)} (${type})`
+    ]));
+    const ruleRows = document.createElement('div');
+    ruleRows.className = 'strategy-config-fields strategy-config-fields-single';
+    const emptyRuleRow = document.createElement('div');
+    emptyRuleRow.className = 'strategy-rule-empty';
+    emptyRuleRow.textContent = '该怪物暂无临时模拟配置。最终应对由玩家脚本决定。';
+    ruleRows.appendChild(emptyRuleRow);
+    enemyTypes.forEach((enemyType) => {
       ruleInputs[enemyType] = {};
-
       StrategyConfig.getSupportedEventsForEnemy(enemyType).forEach((eventType) => {
         const rule = savedConfig.combatRules[enemyType][eventType];
         const eventInput = this.createCombatRuleInput(enemyType, eventType, rule);
+        eventInput.row.dataset.enemyType = enemyType;
+        eventInput.row.hidden = enemyType !== enemySelect.input.value;
         ruleInputs[enemyType][eventType] = eventInput;
-        fields.push(eventInput.row);
+        ruleRows.appendChild(eventInput.row);
       });
-
-      configPanel.appendChild(this.createConfigGroup(StrategyConfig.getEnemyDisplayName(enemyType), fields));
     });
+    enemySelect.input.addEventListener('change', () => {
+      this.renderSelectedEnemyRules(ruleInputs, enemySelect.input.value, emptyRuleRow);
+    });
+    this.renderSelectedEnemyRules(ruleInputs, enemySelect.input.value, emptyRuleRow);
+    configPanel.appendChild(this.createConfigGroup('怪物策略', [enemySelect.label, ruleRows]));
 
     const textarea = document.createElement('textarea');
     textarea.spellcheck = false;
-    textarea.value = localStorage.getItem('hellSurvival.strategy') || StrategyCompiler.getDefaultSource();
+    const savedSource = localStorage.getItem('hellSurvival.strategy');
+    textarea.value = savedSource && !StrategyCompiler.isDefaultSource(savedSource)
+      ? savedSource
+      : StrategyCompiler.getDefaultSource();
 
     const button = document.createElement('button');
     button.textContent = '运行策略';
@@ -71,8 +88,15 @@ class MenuScene extends Phaser.Scene {
 
     button.addEventListener('click', () => {
       try {
-        window.onEvent = StrategyCompiler.compile(textarea.value);
-        localStorage.setItem('hellSurvival.strategy', textarea.value);
+        const source = textarea.value;
+        const strategy = StrategyCompiler.compile(source);
+        if (StrategyCompiler.isDefaultSource(source)) {
+          window.onEvent = null;
+          localStorage.removeItem('hellSurvival.strategy');
+        } else {
+          window.onEvent = strategy;
+          localStorage.setItem('hellSurvival.strategy', source);
+        }
         window.hellSurvivalStrategyConfig = StrategyConfig.save(this.createConfigFromInputs({
           hpThresholdInput,
           ruleInputs
@@ -88,7 +112,8 @@ class MenuScene extends Phaser.Scene {
 
     resetButton.addEventListener('click', () => {
       textarea.value = StrategyCompiler.getDefaultSource();
-      localStorage.setItem('hellSurvival.strategy', textarea.value);
+      window.onEvent = null;
+      localStorage.removeItem('hellSurvival.strategy');
       const defaults = StrategyConfig.reset();
       hpThresholdInput.input.value = defaults.hpLowThreshold;
       this.applyConfigToRuleInputs(ruleInputs, defaults);
@@ -155,15 +180,15 @@ class MenuScene extends Phaser.Scene {
       });
     });
 
-    const archerProjectileRule = combatRules.skeleton_archer && combatRules.skeleton_archer.PROJECTILE_SPAWNED;
-    const guardWindupRule = combatRules.skeleton_guard && combatRules.skeleton_guard.ENEMY_WINDUP;
+    const archerProjectileRule = combatRules.ranged_a && combatRules.ranged_a.PROJECTILE_SPAWNED;
+    const meleeWindupRule = combatRules.melee_a && combatRules.melee_a.ENEMY_WINDUP;
 
     return {
       hpLowThreshold: Number(inputs.hpThresholdInput.input.value),
       dodgeProjectileDistance: archerProjectileRule ? archerProjectileRule.distance : 'near',
-      windupResponseEnabled: guardWindupRule ? guardWindupRule.responseAction !== 'wait' : false,
-      windupResponseAction: guardWindupRule ? guardWindupRule.responseAction : 'wait',
-      windupReactionDelayMs: guardWindupRule ? guardWindupRule.delayMs : 0,
+      windupResponseEnabled: meleeWindupRule ? meleeWindupRule.responseAction !== 'wait' : false,
+      windupResponseAction: meleeWindupRule ? meleeWindupRule.responseAction : 'wait',
+      windupReactionDelayMs: meleeWindupRule ? meleeWindupRule.delayMs : 0,
       projectileResponseEnabled: archerProjectileRule ? archerProjectileRule.responseAction !== 'wait' : false,
       projectileReactionDelayMs: archerProjectileRule ? archerProjectileRule.delayMs : 0,
       combatRules
@@ -185,6 +210,23 @@ class MenuScene extends Phaser.Scene {
         }
       });
     });
+  }
+
+  renderSelectedEnemyRules(ruleInputs, selectedEnemyType, emptyRuleRow = null) {
+    let visibleCount = 0;
+    Object.entries(ruleInputs).forEach(([enemyType, eventInputs]) => {
+      Object.values(eventInputs).forEach((eventInput) => {
+        const isVisible = enemyType === selectedEnemyType;
+        eventInput.row.hidden = !isVisible;
+        if (isVisible) {
+          visibleCount += 1;
+        }
+      });
+    });
+    const emptyRow = emptyRuleRow || document.querySelector('.strategy-rule-empty');
+    if (emptyRow) {
+      emptyRow.hidden = visibleCount > 0;
+    }
   }
 
   createNumberInput(text, value, min, max, step) {

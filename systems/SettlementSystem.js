@@ -10,8 +10,9 @@ class SettlementSystem {
     const lostIds = new Set(lostItems.map((item) => item.id));
     const keptItems = result === 'death' ? items.filter((item) => !lostIds.has(item.id)) : items;
 
-    return {
+    const summary = {
       result,
+      codeVersion: window.HELL_SURVIVAL_CODE_VERSION || null,
       floor: this.scene.currentFloor,
       roomId: this.scene.currentRoomId,
       hp: Math.ceil(this.scene.player.hp),
@@ -28,6 +29,10 @@ class SettlementSystem {
       })),
       events: this.scene.runRecorder.getSnapshot()
     };
+
+    summary.agentReplayIndex = AgentReplayIndex.create(summary);
+    summary.developerRunLog = AgentReplayIndex.createDeveloperLog(summary);
+    return summary;
   }
 }
 

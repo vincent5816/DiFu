@@ -22,6 +22,33 @@ class ProgressSystem {
     return true;
   }
 
+  static recordObservedEvent(type, eventType, details = {}) {
+    if (!type || !eventType) {
+      return;
+    }
+
+    const codex = ProgressSystem.getCodex();
+    const entry = codex[type] || {
+      type,
+      unlockedAt: new Date().toISOString()
+    };
+    const observedEvents = entry.observedEvents || {};
+    const current = observedEvents[eventType] || {
+      type: eventType,
+      count: 0,
+      firstSeenAt: new Date().toISOString()
+    };
+    current.count += 1;
+    current.lastSeenAt = new Date().toISOString();
+    if (details.burstCount) {
+      current.burstCount = details.burstCount;
+    }
+    observedEvents[eventType] = current;
+    entry.observedEvents = observedEvents;
+    codex[type] = entry;
+    localStorage.setItem(ProgressSystem.storageKey, JSON.stringify(codex));
+  }
+
   static listCodexEntries() {
     return Object.values(ProgressSystem.getCodex());
   }

@@ -118,6 +118,7 @@ class DungeonScene extends Phaser.Scene {
   }
 
   update() {
+    this.reportFrameHitch();
     this.regeneratePlayerResources();
     this.applyHazardDamage();
     this.combatSystem.update();
@@ -127,6 +128,20 @@ class DungeonScene extends Phaser.Scene {
     this.updateManualMove();
     this.autoAdvance();
     this.eventSystem.update();
+  }
+
+  reportFrameHitch() {
+    const monitor = globalThis.PerformanceMonitor;
+    if (!monitor || !this.game || !this.game.loop) {
+      return;
+    }
+
+    monitor.reportFrame(this.game.loop.delta, {
+      roomId: this.currentRoomId,
+      floor: this.currentFloor,
+      speedMultiplier: this.runSpeedMultiplier || 1,
+      isEncounterLocked: Boolean(this.isEncounterLocked)
+    });
   }
 
   regeneratePlayerResources() {

@@ -26,7 +26,7 @@ class CommandExecutor {
       return;
     }
 
-    console.log('[CommandExecutor] Executing:', command, 'for event:', snapshot.event.type);
+    this.debugLog('[CommandExecutor] Executing:', command, 'for event:', snapshot.event.type);
     this.scene.recordRunEvent('COMMAND_EXECUTED', {
       action: command.action,
       eventType: snapshot.event.type,
@@ -112,7 +112,7 @@ class CommandExecutor {
   }
 
   move(command, snapshot) {
-    console.log('[CommandExecutor] MOVE:', command.direction);
+    this.debugLog('[CommandExecutor] MOVE:', command.direction);
     if (command.stopAtAttackRange && command.targetId && this.isTargetInPlayerAttackRange(command.targetId)) {
       this.scene.recordRunEvent('PLAYER_MOVE_IGNORED', {
         action: 'MOVE',
@@ -136,7 +136,7 @@ class CommandExecutor {
   }
 
   attack(targetId, method = 'normal') {
-    console.log('[CommandExecutor] ATTACK:', targetId, method);
+    this.debugLog('[CommandExecutor] ATTACK:', targetId, method);
     if (method !== 'normal' && method !== 'skill') {
       this.scene.addLog(`ATTACK ignored: bad method ${method}`);
       return;
@@ -470,7 +470,7 @@ class CommandExecutor {
   }
 
   jump() {
-    console.log('[CommandExecutor] JUMP');
+    this.debugLog('[CommandExecutor] JUMP');
     const didUseSkill = this.scene.jumpPlayer();
     if (!didUseSkill) {
       this.scene.recordRunEvent('REACTION_IGNORED', {
@@ -482,7 +482,7 @@ class CommandExecutor {
   }
 
   doubleJump() {
-    console.log('[CommandExecutor] DOUBLE_JUMP');
+    this.debugLog('[CommandExecutor] DOUBLE_JUMP');
     if (!this.scene.doubleJumpPlayer()) {
       this.scene.recordRunEvent('REACTION_IGNORED', {
         action: 'DOUBLE_JUMP',
@@ -492,7 +492,7 @@ class CommandExecutor {
   }
 
   dash(direction = 'right') {
-    console.log('[CommandExecutor] DASH:', direction);
+    this.debugLog('[CommandExecutor] DASH:', direction);
     if (!this.scene.dashPlayer(direction)) {
       this.scene.recordRunEvent('REACTION_IGNORED', {
         action: 'DASH',
@@ -503,7 +503,7 @@ class CommandExecutor {
   }
 
   defend() {
-    console.log('[CommandExecutor] DEFEND');
+    this.debugLog('[CommandExecutor] DEFEND');
     this.scene.player.isDefending = true;
     this.scene.player.defendingUntil = this.scene.time.now + 3000;
     this.scene.addLog('DEFEND started');
@@ -514,7 +514,7 @@ class CommandExecutor {
   }
 
   open(targetId) {
-    console.log('[CommandExecutor] OPEN:', targetId);
+    this.debugLog('[CommandExecutor] OPEN:', targetId);
     const target = this.scene.entities.find((entity) => entity.id === targetId && entity.active);
     if (!target) {
       console.warn('[CommandExecutor] OPEN target not found:', targetId);
@@ -545,7 +545,7 @@ class CommandExecutor {
   }
 
   use(targetId) {
-    console.log('[CommandExecutor] USE:', targetId);
+    this.debugLog('[CommandExecutor] USE:', targetId);
     const target = this.scene.entities.find((entity) => entity.id === targetId && entity.active);
     if (!target) {
       console.warn('[CommandExecutor] USE target not found:', targetId);
@@ -598,7 +598,7 @@ class CommandExecutor {
   }
 
   pickup(targetId) {
-    console.log('[CommandExecutor] PICKUP:', targetId);
+    this.debugLog('[CommandExecutor] PICKUP:', targetId);
     const target = this.scene.entities.find((entity) => entity.id === targetId && entity.active);
     if (!target) {
       console.warn('[CommandExecutor] PICKUP target not found:', targetId);
@@ -656,7 +656,7 @@ class CommandExecutor {
   }
 
   discard(itemId) {
-    console.log('[CommandExecutor] DISCARD:', itemId);
+    this.debugLog('[CommandExecutor] DISCARD:', itemId);
     const removed = this.scene.inventorySystem.remove(itemId);
     if (!removed) {
       console.warn('[CommandExecutor] DISCARD item not found:', itemId);
@@ -672,7 +672,7 @@ class CommandExecutor {
   }
 
   retreat() {
-    console.log('[CommandExecutor] RETREAT');
+    this.debugLog('[CommandExecutor] RETREAT');
     if (this.scene.hasActiveBoss && this.scene.hasActiveBoss()) {
       this.scene.recordRunEvent('RETREAT_BLOCKED', {
         reason: 'boss_alive'
@@ -686,7 +686,14 @@ class CommandExecutor {
   }
 
   wait() {
-    console.log('[CommandExecutor] WAIT');
+    this.debugLog('[CommandExecutor] WAIT');
+  }
+
+  debugLog(...args) {
+    const monitor = globalThis.PerformanceMonitor;
+    if (monitor) {
+      monitor.debugLog(...args);
+    }
   }
 
   showCombatText(text, x, y, color) {

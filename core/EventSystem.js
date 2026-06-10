@@ -101,18 +101,18 @@ class EventSystem {
       eventType: event.type,
       entityId: event.entityId || null
     }, () => {
-      console.log('[EventSystem] Event triggered:', event);
+      this.debugLog('[EventSystem] Event triggered:', event);
       this.scene.recordRunEvent(event.type, {
         entityId: event.entityId || null,
         ...(event.details || {})
       });
       this.scene.addLog(`Event: ${event.type} (${event.entityId || 'none'})`);
       const snapshot = StateSnapshot.create(this.scene, event);
-      console.log('[StateSnapshot]', snapshot);
+      this.debugLog('[StateSnapshot]', snapshot);
       this.scene.addLog(`Snapshot: vision=${snapshot.vision.length}, hp=${snapshot.player.hp}/${snapshot.player.maxHp}`);
       this.scene.addLog(`Vision: ${this.formatVision(snapshot.vision)}`);
       const command = this.measure('AgentRunner.run', { eventType: event.type }, () => this.agentRunner.run(snapshot));
-      console.log('[AgentRunner] Command returned:', command);
+      this.debugLog('[AgentRunner] Command returned:', command);
       const plan = this.measure('EventSystem.createCommandPlan', { eventType: event.type }, () => this.createCommandPlan(command, snapshot));
       this.scene.addLog(`Agent: ${plan.map((entry) => entry.command.action).join(' -> ')}`);
 
@@ -131,6 +131,13 @@ class EventSystem {
       floor: this.scene.currentFloor,
       ...context
     }, callback);
+  }
+
+  debugLog(...args) {
+    const monitor = globalThis.PerformanceMonitor;
+    if (monitor) {
+      monitor.debugLog(...args);
+    }
   }
 
   createCommandPlan(result, snapshot) {

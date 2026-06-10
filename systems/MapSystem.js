@@ -81,6 +81,7 @@ class MapSystem {
 
   createEntity(config) {
     const mergedConfig = this.mergeEntityConfig(config);
+    const visualConfig = this.getMonsterVisualConfig(mergedConfig.type);
     const entity = {
       id: mergedConfig.id,
       kind: mergedConfig.kind,
@@ -109,25 +110,7 @@ class MapSystem {
       visuals: []
     };
 
-    if (mergedConfig.type === 'boss_floor1' && this.scene.textures.exists('boss_floor1_sprite')) {
-      entity.sprite.setAlpha(0);
-    }
-    if (mergedConfig.type === 'contact_a' && this.scene.textures.exists('contact_a_sprite')) {
-      entity.sprite.setAlpha(0);
-    }
-    if (mergedConfig.type === 'contact_b' && this.scene.textures.exists('contact_b_sprite')) {
-      entity.sprite.setAlpha(0);
-    }
-    if (mergedConfig.type === 'melee_a' && this.scene.textures.exists('melee_a_sprite')) {
-      entity.sprite.setAlpha(0);
-    }
-    if (mergedConfig.type === 'melee_b' && this.scene.textures.exists('melee_b_sprite')) {
-      entity.sprite.setAlpha(0);
-    }
-    if (mergedConfig.type === 'ranged_a' && this.scene.textures.exists('ranged_a_sprite')) {
-      entity.sprite.setAlpha(0);
-    }
-    if (mergedConfig.type === 'ranged_b' && this.scene.textures.exists('ranged_b_sprite')) {
+    if (visualConfig && this.scene.textures.exists(visualConfig.textureKey)) {
       entity.sprite.setAlpha(0);
     }
     entity.visuals = this.createEntityVisuals(entity, mergedConfig);
@@ -163,13 +146,12 @@ class MapSystem {
       return [];
     }
 
+    const spriteVisual = this.createConfiguredMonsterVisual(entity, config.type);
+    if (spriteVisual) {
+      return [spriteVisual];
+    }
+
     if (config.combat.attackType === 'ranged') {
-      if (config.type === 'ranged_a' && this.scene.textures.exists('ranged_a_sprite')) {
-        return [this.createRangedAVisual(entity)];
-      }
-      if (config.type === 'ranged_b' && this.scene.textures.exists('ranged_b_sprite')) {
-        return [this.createRangedBVisual(entity)];
-      }
       const eye = this.createOffsetCircle(entity, 12, -16, 7, 0xffd166, 0.95);
       const bow = this.createOffsetRectangle(entity, 19, 0, 5, 34, 0xffd166, 0.9);
       bow.setRotation(0.25);
@@ -179,12 +161,6 @@ class MapSystem {
     }
 
     if (config.combat.attackType === 'melee') {
-      if (config.type === 'melee_a' && this.scene.textures.exists('melee_a_sprite')) {
-        return [this.createMeleeAVisual(entity)];
-      }
-      if (config.type === 'melee_b' && this.scene.textures.exists('melee_b_sprite')) {
-        return [this.createMeleeBVisual(entity)];
-      }
       const guard = this.createOffsetRectangle(entity, 16, -6, 8, 36, 0xf2eee2, 0.9);
       const hilt = this.createOffsetRectangle(entity, 10, 9, 18, 5, 0x8f887b, 0.95);
       guard.setRotation(-0.62);
@@ -195,21 +171,11 @@ class MapSystem {
     }
 
     if (config.combat.attackType === 'contact') {
-      if (config.type === 'contact_a' && this.scene.textures.exists('contact_a_sprite')) {
-        return [this.createContactAVisual(entity)];
-      }
-      if (config.type === 'contact_b' && this.scene.textures.exists('contact_b_sprite')) {
-        return [this.createContactBVisual(entity)];
-      }
       const core = this.createOffsetCircle(entity, 0, 0, 10, 0xf6e05e, 0.7);
       const shell = this.createOffsetCircle(entity, 0, 0, 18, 0xd6bcfa, 0.18);
       core.setDepth(4);
       shell.setDepth(3);
       return [shell, core];
-    }
-
-    if (config.combat.attackType === 'boss' && config.type === 'boss_floor1' && this.scene.textures.exists('boss_floor1_sprite')) {
-      return [this.createBossFloor1Visual(entity)];
     }
 
     if (config.combat.attackType === 'boss') {
@@ -253,45 +219,20 @@ class MapSystem {
     return visual;
   }
 
-  createBossFloor1Visual(entity) {
-    const source = this.scene.textures.get('boss_floor1_sprite').getSourceImage();
-    const displayHeight = 220;
-    const displayWidth = Math.round(displayHeight * (source.width / source.height));
-    const offsetY = this.getEntityVisualBaselineOffset(displayHeight);
-    const visual = this.scene.add.image(entity.sprite.x, entity.sprite.y + offsetY, 'boss_floor1_sprite');
-    visual.setOrigin(0.5, 0.5);
-    visual.setDisplaySize(displayWidth, displayHeight);
-    visual.setDepth(3);
-    visual._entityOffset = { x: 0, y: offsetY };
-    return visual;
+  getMonsterVisualConfig(type) {
+    if (!globalThis.MonsterVisualData || !MonsterVisualData.types) {
+      return null;
+    }
+    return MonsterVisualData.types[type] || null;
   }
 
-  createContactAVisual(entity) {
-    return this.createContactVisual(entity, 'contact_a_sprite', 57);
-  }
+  createConfiguredMonsterVisual(entity, type) {
+    const visualConfig = this.getMonsterVisualConfig(type);
+    if (!visualConfig || !this.scene.textures.exists(visualConfig.textureKey)) {
+      return null;
+    }
 
-  createContactBVisual(entity) {
-    return this.createContactVisual(entity, 'contact_b_sprite', 84);
-  }
-
-  createMeleeAVisual(entity) {
-    return this.createMonsterBaselineVisual(entity, 'melee_a_sprite', 96);
-  }
-
-  createMeleeBVisual(entity) {
-    return this.createMonsterBaselineVisual(entity, 'melee_b_sprite', 118);
-  }
-
-  createRangedAVisual(entity) {
-    return this.createMonsterBaselineVisual(entity, 'ranged_a_sprite', 92);
-  }
-
-  createRangedBVisual(entity) {
-    return this.createMonsterBaselineVisual(entity, 'ranged_b_sprite', 104);
-  }
-
-  createContactVisual(entity, textureKey, displayHeight) {
-    return this.createMonsterBaselineVisual(entity, textureKey, displayHeight);
+    return this.createMonsterBaselineVisual(entity, visualConfig.textureKey, visualConfig.displayHeight);
   }
 
   createMonsterBaselineVisual(entity, textureKey, displayHeight) {
@@ -307,7 +248,10 @@ class MapSystem {
   }
 
   getEntityVisualBaselineOffset(displayHeight) {
-    return Math.round(59 - displayHeight / 2);
+    const baselineOffsetY = globalThis.MonsterVisualData && Number.isFinite(MonsterVisualData.baselineOffsetY)
+      ? MonsterVisualData.baselineOffsetY
+      : 59;
+    return Math.round(baselineOffsetY - displayHeight / 2);
   }
 
   mergeEntityConfig(config) {

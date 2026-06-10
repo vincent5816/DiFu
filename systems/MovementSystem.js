@@ -499,7 +499,18 @@ class MovementSystem {
       }
 
       entity.label.setPosition(entity.sprite.x - 28, entity.sprite.y + 60);
+      if (entity.visuals) {
+        entity.visuals.forEach((visual) => {
+          if (visual && visual._entityOffset) {
+            visual.setPosition(entity.sprite.x + visual._entityOffset.x, entity.sprite.y + visual._entityOffset.y);
+          }
+        });
+      }
     });
+
+    if (typeof this.scene.updateVisualDebugOverlay === 'function') {
+      this.scene.updateVisualDebugOverlay();
+    }
   }
 
   startMovementAction(action, durationMs) {

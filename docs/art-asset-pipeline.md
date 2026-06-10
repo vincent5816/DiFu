@@ -98,3 +98,25 @@ python tools/process_asset.py image/bg-8-3.png `
 3. `BootScene.js` 的加载 key 和 fallback PNG 是否匹配。
 
 如果控制台出现 `Failed to load ... image` 或 `texture missing`，优先检查文件名大小写、`index.html` 是否引入 data 文件，以及 fallback PNG 路径是否真实存在。
+
+## 视觉配置
+
+怪物贴图的显示尺寸集中配置在 `data/monsterVisuals.js`：
+
+- `textureKey`：Phaser 里加载后的纹理 key。
+- `displayHeight`：该怪物在游戏里的显示高度，宽度按原图比例自动计算。
+- `baselineOffsetY`：所有怪物共用的脚底基线偏移。默认是 `59`，表示怪物贴图脚底相对逻辑中心点向下 59px。
+- `preserveInnerWhite`：记录这张图在资产处理时需要保留内部白色，主要用于文件、纸张、表格类怪物。
+
+调整怪物大小时优先改 `displayHeight`。只有确认所有怪物整体都漂浮或下沉时，才改 `baselineOffsetY`。
+
+## 基线调试
+
+局内按 `G` 可以切换视觉调试叠线：
+
+- 蓝线：玩家视觉脚底基线。
+- 绿色短线：每个怪物视觉脚底基线。
+- 蓝色矩形：玩家逻辑碰撞框。
+- 黄色矩形：怪物逻辑碰撞框。
+
+调试时优先看绿色短线是否和蓝线处在同一地面高度；如果线对齐但画面仍不对，通常是背景图透视或贴图自身留白问题。

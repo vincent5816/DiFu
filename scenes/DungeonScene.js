@@ -33,6 +33,8 @@ class DungeonScene extends Phaser.Scene {
     this.roomBackground = null;
     this.roomBackgroundDimmer = null;
     this.roomBackgroundKey = null;
+    this.visualDebugEnabled = false;
+    this.visualDebugGraphics = null;
 
     this.createRoomBackground();
     this.mapSystem = new MapSystem(this);
@@ -417,6 +419,9 @@ class DungeonScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-L', () => {
       this.printCurrentCombatLog();
     });
+    this.input.keyboard.on('keydown-G', () => {
+      this.toggleVisualDebugOverlay();
+    });
     this.input.keyboard.on('keydown', (event) => {
       if (event.key === '1') {
         this.setRunSpeedMultiplier(1);
@@ -589,6 +594,88 @@ class DungeonScene extends Phaser.Scene {
     }
     this.showStatus(`Debug phase2: Boss HP ${boss.hp}/${boss.maxHp}`);
     this.addLog(`Debug phase2: ${boss.id}`);
+  }
+
+  toggleVisualDebugOverlay() {
+    this.visualDebugEnabled = !this.visualDebugEnabled;
+    if (!this.visualDebugEnabled) {
+      this.clearVisualDebugOverlay();
+      this.showStatus('Visual debug OFF');
+      this.addLog('Visual debug OFF');
+      return;
+    }
+
+    this.updateVisualDebugOverlay();
+    this.showStatus('Visual debug ON: baselines and hitboxes');
+    this.addLog('Visual debug ON');
+  }
+
+  clearVisualDebugOverlay() {
+    if (this.visualDebugGraphics) {
+      this.visualDebugGraphics.destroy();
+      this.visualDebugGraphics = null;
+    }
+  }
+
+  updateVisualDebugOverlay() {
+    if (!this.visualDebugEnabled) {
+      return;
+    }
+
+    if (!this.visualDebugGraphics) {
+      this.visualDebugGraphics = this.add.graphics();
+      this.visualDebugGraphics.setDepth(99);
+    }
+
+    const graphics = this.visualDebugGraphics;
+    graphics.clear();
+
+    const frame = Floor1Data.roomFrame;
+    const playerBaselineY = this.getPlayerVisualBaselineY();
+    graphics.lineStyle(1, 0x78c2ff, 0.8);
+    graphics.lineBetween(frame.x - frame.width / 2, playerBaselineY, frame.x + frame.width / 2, playerBaselineY);
+    graphics.strokeRect(
+      this.player.sprite.x - this.player.hitboxWidth / 2,
+      this.player.sprite.y - this.player.hitboxHeight / 2,
+      this.player.hitboxWidth,
+      this.player.hitboxHeight
+    );
+
+    this.entities.forEach((entity) => {
+      if (!entity.active || !entity.sprite) {
+        return;
+      }
+
+      graphics.lineStyle(1, 0xffd166, 0.7);
+      graphics.strokeRect(
+        entity.sprite.x - entity.sprite.width / 2,
+        entity.sprite.y - entity.sprite.height / 2,
+        entity.sprite.width,
+        entity.sprite.height
+      );
+      const baselineY = this.getEntityVisualBaselineY(entity);
+      graphics.lineStyle(1, 0x76e0a6, 0.8);
+      graphics.lineBetween(entity.sprite.x - 46, baselineY, entity.sprite.x + 46, baselineY);
+    });
+  }
+
+  getPlayerVisualBaselineY() {
+    if (!this.player || !this.player.sprite || !this.player.sprite.visual) {
+      return this.player && this.player.sprite ? this.player.sprite.y + this.player.hitboxHeight / 2 : 0;
+    }
+
+    const visual = this.player.sprite.visual;
+    return this.player.sprite.y + visual.y + visual.displayHeight / 2;
+  }
+
+  getEntityVisualBaselineY(entity) {
+    if (entity.visuals && entity.visuals.length > 0) {
+      const imageVisual = entity.visuals.find((visual) => visual && Number.isFinite(visual.displayHeight));
+      if (imageVisual) {
+        return imageVisual.y + imageVisual.displayHeight / 2;
+      }
+    }
+    return entity.sprite.y + entity.sprite.height / 2;
   }
 
   showStatus(message) {

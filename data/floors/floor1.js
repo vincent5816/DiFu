@@ -17,23 +17,6 @@ const Floor1Data = {
       zones: {},
       entities: [
         {
-          id: 'chest_001',
-          kind: 'chest',
-          type: 'paper_money_chest',
-          x: 520,
-          y: 270,
-          width: 46,
-          height: 38,
-          fillColor: 0xd6a84f,
-          gold: 40,
-          label: {
-            text: '宝箱',
-            x: 496,
-            y: 330,
-            color: '#ffd98a'
-          }
-        },
-        {
           id: 'enemy_001',
           kind: 'enemy',
           type: 'contact_b',
@@ -54,8 +37,8 @@ const Floor1Data = {
           height: 88,
           fillColor: 0x7f6a4a,
           label: {
-            text: '门',
-            x: 842,
+            text: 'Door',
+            x: 834,
             y: 330,
             color: '#d8c08f'
           }
@@ -81,6 +64,22 @@ const Floor1Data = {
             y: 330
           }
         }
+      ],
+      doors: [
+        {
+          id: 'door_002',
+          x: 850,
+          y: 270,
+          width: 32,
+          height: 88,
+          fillColor: 0x7f6a4a,
+          label: {
+            text: 'Door',
+            x: 834,
+            y: 330,
+            color: '#d8c08f'
+          }
+        }
       ]
     },
     {
@@ -100,6 +99,22 @@ const Floor1Data = {
           label: {
             x: 580,
             y: 330
+          }
+        }
+      ],
+      doors: [
+        {
+          id: 'door_003',
+          x: 850,
+          y: 270,
+          width: 32,
+          height: 88,
+          fillColor: 0x7f6a4a,
+          label: {
+            text: 'Door',
+            x: 834,
+            y: 330,
+            color: '#d8c08f'
           }
         }
       ]
@@ -123,6 +138,22 @@ const Floor1Data = {
             y: 330
           }
         }
+      ],
+      doors: [
+        {
+          id: 'door_004',
+          x: 850,
+          y: 270,
+          width: 32,
+          height: 88,
+          fillColor: 0x7f6a4a,
+          label: {
+            text: 'Door',
+            x: 834,
+            y: 330,
+            color: '#d8c08f'
+          }
+        }
       ]
     },
     {
@@ -142,6 +173,22 @@ const Floor1Data = {
           label: {
             x: 610,
             y: 330
+          }
+        }
+      ],
+      doors: [
+        {
+          id: 'door_005',
+          x: 850,
+          y: 270,
+          width: 32,
+          height: 88,
+          fillColor: 0x7f6a4a,
+          label: {
+            text: 'Door',
+            x: 834,
+            y: 330,
+            color: '#d8c08f'
           }
         }
       ]
@@ -165,10 +212,72 @@ const Floor1Data = {
             y: 330
           }
         }
+      ],
+      doors: [
+        {
+          id: 'door_006',
+          x: 850,
+          y: 270,
+          width: 32,
+          height: 88,
+          fillColor: 0x7f6a4a,
+          label: {
+            text: 'Door',
+            x: 834,
+            y: 330,
+            color: '#d8c08f'
+          }
+        }
       ]
     },
     {
       id: 'room_007',
+      playerStart: {
+        x: 180,
+        y: 270
+      },
+      zones: {},
+      entities: [
+        {
+          id: 'heal_001',
+          kind: 'heal_point',
+          type: 'supply_heal_point',
+          x: 520,
+          y: 270,
+          width: 48,
+          height: 48,
+          fillColor: 0x5fbf9a,
+          alpha: 0.9,
+          cost: 100,
+          healRatio: 0.5,
+          encounterRadius: 96,
+          label: {
+            text: 'Heal',
+            x: 500,
+            y: 330,
+            color: '#99ffd8'
+          }
+        }
+      ],
+      doors: [
+        {
+          id: 'door_007',
+          x: 850,
+          y: 270,
+          width: 32,
+          height: 88,
+          fillColor: 0x7f6a4a,
+          label: {
+            text: 'Door',
+            x: 834,
+            y: 330,
+            color: '#d8c08f'
+          }
+        }
+      ]
+    },
+    {
+      id: 'room_008',
       playerStart: {
         x: 180,
         y: 270
@@ -187,6 +296,26 @@ const Floor1Data = {
           }
         },
         {
+          id: 'chest_001',
+          kind: 'chest',
+          type: 'paper_money_chest',
+          active: false,
+          lockedUntilBossDefeated: true,
+          x: 790,
+          y: 318,
+          width: 46,
+          height: 38,
+          fillColor: 0xd6a84f,
+          gold: 40,
+          encounterRadius: 86,
+          label: {
+            text: 'Chest',
+            x: 766,
+            y: 366,
+            color: '#ffd98a'
+          }
+        },
+        {
           id: 'return_002',
           kind: 'return_point',
           type: 'return_gate',
@@ -200,10 +329,26 @@ const Floor1Data = {
           alpha: 0.85,
           encounterRadius: 36,
           label: {
-            text: '返回点',
-            x: 822,
+            text: 'Gate',
+            x: 828,
             y: 330,
             color: '#99ffd8'
+          }
+        }
+      ],
+      doors: [
+        {
+          id: 'door_008',
+          x: 850,
+          y: 270,
+          width: 32,
+          height: 88,
+          fillColor: 0x7f6a4a,
+          label: {
+            text: 'Door',
+            x: 834,
+            y: 330,
+            color: '#d8c08f'
           }
         }
       ]

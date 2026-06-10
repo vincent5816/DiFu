@@ -18,14 +18,14 @@ class HazardSystem {
     if (inSoftHazard && this.scene.player.hp > 35) {
       this.scene.player.hp = Math.max(
         35,
-        this.scene.player.hp - 30 * (this.scene.game.loop.delta / 1000)
+        this.scene.player.hp - 30 * this.scene.getRunDeltaSeconds()
       );
     }
 
     if (inDeathZone && this.scene.player.hp > 0) {
       this.scene.player.hp = Math.max(
         0,
-        this.scene.player.hp - 55 * (this.scene.game.loop.delta / 1000)
+        this.scene.player.hp - 55 * this.scene.getRunDeltaSeconds()
       );
     }
   }

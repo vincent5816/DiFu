@@ -1,4 +1,4 @@
-class CombatSystem {
+﻿class CombatSystem {
   constructor(scene) {
     this.scene = scene;
     this.projectiles = [];
@@ -18,6 +18,7 @@ class CombatSystem {
 
     this.updateDebugShapes();
     this.updateSilentTargeting();
+    this.updatePlayerSkillEffects();
     this.updateEnemies();
     this.updateProjectiles();
     this.resolvePlayerEnemyBodyCollisions();
@@ -277,7 +278,7 @@ class CombatSystem {
 
   updateBossCharge(entity) {
     const direction = entity.combatState.chargeDirection || -1;
-    const deltaSeconds = this.scene.game.loop.delta / 1000;
+    const deltaSeconds = this.scene.getRunDeltaSeconds();
     const roomFrame = this.scene.mapSystem.floorData.roomFrame;
     const halfWidth = (entity.sprite.width || 72) / 2;
     const roomLeft = roomFrame.x - roomFrame.width / 2 + halfWidth;
@@ -288,7 +289,7 @@ class CombatSystem {
     this.updateMovingEntity(entity);
 
     if (!entity.combatState.chargeHitResolved && this.isPlayerTouchingEntity(entity)) {
-      this.flashText('撞击', entity.sprite.x, entity.sprite.y - 54, '#ff6b6b');
+      this.flashText('CHARGE HIT', entity.sprite.x, entity.sprite.y - 54, '#ff6b6b');
       this.addCombatEvent('BOSS_CHARGE_HIT', entity, {
         attackType: 'boss_charge',
         damage: entity.combat.chargeDamage,
@@ -300,7 +301,7 @@ class CombatSystem {
 
     if (entity.sprite.x <= roomLeft || entity.sprite.x >= roomRight) {
       this.setPhase(entity, 'boss_stunned_a');
-      this.flashText('鐪╂檿', entity.sprite.x, entity.sprite.y - 54, '#69c0ff');
+      this.flashText('STUN', entity.sprite.x, entity.sprite.y - 54, '#69c0ff');
       this.addCombatEvent('BOSS_STUNNED_A', entity, { durationMs: entity.combat.stunOnWallMs });
     }
   }
@@ -368,7 +369,7 @@ class CombatSystem {
       return;
     }
 
-    const deltaSeconds = this.scene.game.loop.delta / 1000;
+    const deltaSeconds = this.scene.getRunDeltaSeconds();
     const speed = entity.combat.repositionMoveSpeed || entity.combat.normalMoveSpeed || 90;
     const step = Math.min(absDelta, speed * deltaSeconds);
     const nextX = entity.sprite.x + Math.sign(delta) * step;
@@ -394,7 +395,7 @@ class CombatSystem {
 
     const dx = this.scene.player.sprite.x - entity.sprite.x;
     const direction = dx >= 0 ? 1 : -1;
-    const deltaSeconds = this.scene.game.loop.delta / 1000;
+    const deltaSeconds = this.scene.getRunDeltaSeconds();
     const speed = entity.combat.approachMoveSpeed || 42;
     const step = Math.min(distance - stopGap, speed * deltaSeconds);
     const roomFrame = this.scene.mapSystem.floorData.roomFrame;
@@ -450,7 +451,7 @@ class CombatSystem {
 
     if (hitIndex >= 3) {
       this.setPhase(entity, 'boss_stunned_b');
-      this.flashText('纭洿', entity.sprite.x, entity.sprite.y - 54, '#69c0ff');
+      this.flashText('STUN', entity.sprite.x, entity.sprite.y - 54, '#69c0ff');
       this.addCombatEvent('BOSS_STUNNED_B', entity, { durationMs: entity.combat.stunAfterTripleMs });
       return;
     }
@@ -513,7 +514,7 @@ class CombatSystem {
     }, didHit, distance);
 
     if (!didHit) {
-      this.flashText('钀界┖', entity.sprite.x, entity.sprite.y - 54, '#8f887b');
+      this.flashText('MISS', entity.sprite.x, entity.sprite.y - 54, '#8f887b');
       return false;
     }
 
@@ -673,7 +674,7 @@ class CombatSystem {
       return;
     }
 
-    const deltaSeconds = this.scene.game.loop.delta / 1000;
+    const deltaSeconds = this.scene.getRunDeltaSeconds();
     const speed = entity.combat.moveSpeed || 24;
     const step = Math.min(absDx - stopRange, speed * deltaSeconds);
     entity.sprite.x += Math.sign(dx) * step;
@@ -685,22 +686,128 @@ class CombatSystem {
       this.patrolEnemy(entity);
     }
 
-    if (!this.isPlayerTouchingEntity(entity)) {
+    const distance = Phaser.Math.Distance.Between(
+      this.scene.player.sprite.x,
+      this.scene.player.sprite.y,
+      entity.sprite.x,
+      entity.sprite.y
+    );
+    const triggerRange = entity.combat.aggroRange || this.scene.visionRadius || 170;
+    const phase = entity.combatState.phase;
+
+    if ((phase === 'patrolling' || phase === 'static' || phase === 'idle') && distance <= triggerRange) {
+      this.startContactAoeWindup(entity);
       return;
     }
 
-    const now = this.scene.time.now;
-    const cooldownMs = entity.combat.contactCooldownMs || 800;
-    if (entity.combatState.lastContactHitAt && now - entity.combatState.lastContactHitAt < cooldownMs) {
+    if (phase === 'contact_aoe_windup') {
+      this.updateContactAoeWarning(entity);
+      if (this.elapsed(entity) >= (entity.combat.aoeWindupMs || 720)) {
+        this.performContactAoe(entity);
+      }
       return;
     }
 
-    entity.combatState.lastContactHitAt = now;
-    this.addCombatEvent('ENEMY_CONTACT_HIT', entity, {
-      attackType: entity.combat.attackType,
+    if (phase === 'contact_aoe_attacking' && this.elapsed(entity) >= (entity.combat.aoeAttackMs || 160)) {
+      this.setPhase(entity, 'contact_aoe_cooldown');
+      this.addCombatEvent('ENEMY_COOLDOWN', entity, {
+        attackType: 'contact_aoe',
+        radius: this.getContactAoeRadius(entity)
+      });
+      return;
+    }
+
+    if (phase === 'contact_aoe_cooldown' && this.elapsed(entity) >= (entity.combat.aoeCooldownMs || 900)) {
+      this.setPhase(entity, entity.combat.behavior === 'static' ? 'static' : 'patrolling');
+    }
+  }
+
+  startContactAoeWindup(entity) {
+    this.setPhase(entity, 'contact_aoe_windup');
+    this.showContactAoeWarning(entity);
+    this.addCombatEvent('ENEMY_WINDUP', entity, {
+      attackType: 'contact_aoe',
+      radius: this.getContactAoeRadius(entity),
       damage: entity.combat.contactDamage
     });
-    this.applyDamage(entity.combat.contactDamage, entity, 'contact');
+  }
+
+  updateContactAoeWarning(entity) {
+    if (!entity.combatState.aoeWarningCircle || !entity.combatState.aoeWarningCircle.active) {
+      this.showContactAoeWarning(entity);
+      return;
+    }
+
+    entity.combatState.aoeWarningCircle.setPosition(entity.sprite.x, entity.sprite.y);
+  }
+
+  showContactAoeWarning(entity) {
+    this.destroyContactAoeWarning(entity);
+    const radius = this.getContactAoeRadius(entity);
+    const warning = this.scene.add.circle(entity.sprite.x, entity.sprite.y, radius, 0xffd166, 0.1)
+      .setStrokeStyle(2, 0xffd166, 0.7);
+    warning.setDepth(2);
+    entity.combatState.aoeWarningCircle = warning;
+  }
+
+  destroyContactAoeWarning(entity) {
+    if (!entity.combatState || !entity.combatState.aoeWarningCircle) {
+      return;
+    }
+
+    entity.combatState.aoeWarningCircle.destroy();
+    entity.combatState.aoeWarningCircle = null;
+  }
+
+  performContactAoe(entity) {
+    this.destroyContactAoeWarning(entity);
+    this.setPhase(entity, 'contact_aoe_attacking');
+
+    const radius = this.getContactAoeRadius(entity);
+    const distance = this.getPlayerContactAoeDistance(entity);
+    const didHit = distance <= radius;
+    this.showContactAoeBurst(entity, didHit, radius);
+    this.addCombatEvent(didHit ? 'ENEMY_CONTACT_AOE_HIT' : 'ENEMY_CONTACT_AOE_MISSED', entity, {
+      attackType: 'contact_aoe',
+      damage: entity.combat.contactDamage,
+      radius,
+      distance: Math.ceil(distance)
+    });
+
+    if (didHit) {
+      this.applyDamage(entity.combat.contactDamage, entity, 'contact');
+    }
+  }
+
+  getContactAoeRadius(entity) {
+    const entityHalfWidth = entity.sprite && entity.sprite.width
+      ? entity.sprite.width / 2
+      : 24;
+    return entity.combat.aoeRadius || ((this.scene.player.attackRange || 90) + entityHalfWidth + 12);
+  }
+
+  getPlayerContactAoeDistance(entity) {
+    const bounds = this.getPlayerHitBounds();
+    const closestX = Phaser.Math.Clamp(entity.sprite.x, bounds.left, bounds.right);
+    const closestY = Phaser.Math.Clamp(entity.sprite.y, bounds.top, bounds.bottom);
+    return Phaser.Math.Distance.Between(entity.sprite.x, entity.sprite.y, closestX, closestY);
+  }
+
+  showContactAoeBurst(entity, didHit, radius) {
+    const color = didHit ? 0xff4f5e : 0x8f887b;
+    const burst = this.scene.add.circle(entity.sprite.x, entity.sprite.y, radius, color, didHit ? 0.24 : 0.12)
+      .setStrokeStyle(3, color, didHit ? 0.85 : 0.45);
+    burst.setDepth(3);
+    this.flashText(didHit ? 'AOE HIT' : 'AOE MISS', entity.sprite.x, entity.sprite.y - 54, didHit ? '#ff6b6b' : '#8f887b');
+    this.scene.tweens.add({
+      targets: burst,
+      alpha: 0,
+      scaleX: 1.12,
+      scaleY: 1.12,
+      duration: 360,
+      ease: 'Sine.easeOut',
+      onComplete: () => burst.destroy()
+    });
   }
 
   isPlayerTouchingEntity(entity) {
@@ -721,9 +828,11 @@ class CombatSystem {
     const player = this.scene.player;
     const direction = nextX > currentX ? 1 : -1;
     const entityHalfWidth = (entity.sprite.width || 42) / 2;
-    const playerHalfWidth = (player.sprite.width || 42) / 2;
+    const playerWidth = player.hitboxWidth || player.sprite.logicalWidth || player.sprite.width || 42;
+    const playerHeight = player.hitboxHeight || player.sprite.logicalHeight || player.sprite.height || 60;
+    const playerHalfWidth = playerWidth / 2;
     const verticalGap = Math.abs(entity.sprite.y - player.sprite.y);
-    const combinedHalfHeight = ((entity.sprite.height || 42) + (player.sprite.height || 42)) / 2;
+    const combinedHalfHeight = ((entity.sprite.height || 42) + playerHeight) / 2;
     if (verticalGap >= combinedHalfHeight) {
       return nextX;
     }
@@ -754,13 +863,38 @@ class CombatSystem {
         return;
       }
 
+      if (entity.combat && entity.combat.attackType === 'contact') {
+        return;
+      }
+
       const overlap = this.getPlayerEnemyOverlap(entity);
       if (!overlap) {
         return;
       }
 
+      this.separatePlayerFromEntity(entity);
       this.applyBodyCollisionDamage(entity);
     });
+  }
+
+  separatePlayerFromEntity(entity, padding = 2) {
+    const player = this.scene.player;
+    const playerBounds = this.getPlayerHitBounds();
+    const enemyBounds = this.getEntityHitBounds(entity);
+    const playerCenterX = player.sprite.x;
+    const enemyCenterX = entity.sprite.x;
+    const direction = playerCenterX <= enemyCenterX ? -1 : 1;
+    const nextX = direction < 0
+      ? enemyBounds.left - playerBounds.width / 2 - padding
+      : enemyBounds.right + playerBounds.width / 2 + padding;
+    const roomFrame = this.scene.mapSystem.floorData.roomFrame;
+    const halfWidth = playerBounds.width / 2;
+    player.sprite.x = Phaser.Math.Clamp(
+      nextX,
+      roomFrame.x - roomFrame.width / 2 + halfWidth,
+      roomFrame.x + roomFrame.width / 2 - halfWidth
+    );
+    this.scene.updateEntityLabels();
   }
 
   getPlayerEnemyOverlap(entity) {
@@ -789,7 +923,7 @@ class CombatSystem {
   knockbackPlayerFromDirection(direction, distance = 64, options = {}) {
     const player = this.scene.player;
     const roomFrame = this.scene.mapSystem.floorData.roomFrame;
-    const playerWidth = player.sprite.width || 42;
+    const playerWidth = player.hitboxWidth || player.sprite.logicalWidth || player.sprite.width || 42;
     const halfWidth = playerWidth / 2;
     const roomLeft = roomFrame.x - roomFrame.width / 2 + halfWidth;
     const roomRight = roomFrame.x + roomFrame.width / 2 - halfWidth;
@@ -992,7 +1126,7 @@ class CombatSystem {
     const patrolRange = entity.combat.patrolRange || 80;
     const minX = Math.max(roomLeft, entity.combatState.patrolOriginX - patrolRange);
     const maxX = Math.min(roomRight, entity.combatState.patrolOriginX + patrolRange);
-    const deltaSeconds = this.scene.game.loop.delta / 1000;
+    const deltaSeconds = this.scene.getRunDeltaSeconds();
     const speed = entity.combat.patrolSpeed || entity.combat.moveSpeed || 18;
     const direction = entity.combatState.patrolDirection || -1;
 
@@ -1067,7 +1201,7 @@ class CombatSystem {
     ).setStrokeStyle(1, 0xff8a66, 0.28);
     const hpBg = this.scene.add.rectangle(entity.sprite.x, entity.sprite.y - 58, 58, 5, 0x111116, 0.9);
     const hpFill = this.scene.add.rectangle(entity.sprite.x - 29, entity.sprite.y - 58, 58, 5, 0xff6b6b, 0.95).setOrigin(0, 0.5);
-    const text = this.scene.add.text(entity.sprite.x, entity.sprite.y - 52, '绌洪棽', {
+    const text = this.scene.add.text(entity.sprite.x, entity.sprite.y - 52, 'PHASE', {
       fontSize: '12px',
       color: '#9a9a9a'
     }).setOrigin(0.5, 0);
@@ -1121,6 +1255,8 @@ class CombatSystem {
       entity.combatDebug = null;
     }
 
+    this.destroyContactAoeWarning(entity);
+
     entity.combatState = null;
   }
 
@@ -1168,6 +1304,15 @@ class CombatSystem {
     if (phase === 'patrolling' || phase === 'chasing' || phase === 'static') {
       return entity.combat.idleMs || 500;
     }
+    if (phase === 'contact_aoe_windup') {
+      return entity.combat.aoeWindupMs || 720;
+    }
+    if (phase === 'contact_aoe_attacking') {
+      return entity.combat.aoeAttackMs || 160;
+    }
+    if (phase === 'contact_aoe_cooldown') {
+      return entity.combat.aoeCooldownMs || 900;
+    }
     if (phase === 'windup') {
       return entity.combat.windupMs;
     }
@@ -1186,6 +1331,9 @@ class CombatSystem {
       chasing: 0xff9f43,
       static: 0x8f887b,
       idle: 0x8f887b,
+      contact_aoe_windup: 0xffd166,
+      contact_aoe_attacking: 0xff6b6b,
+      contact_aoe_cooldown: 0x69c0ff,
       windup: 0xffd166,
       attacking: 0xff6b6b,
       cooldown: 0x69c0ff,
@@ -1209,27 +1357,30 @@ class CombatSystem {
 
   getPhaseLabel(phase) {
     const labels = {
-      patrolling: '巡逻',
-      chasing: '追击',
-      static: '定点',
-      idle: '空闲',
-      windup: '前摇',
-      attacking: '攻击中',
-      cooldown: '冷却',
-      boss_charge_windup: '冲锋前摇',
-      boss_charging: '冲锋',
-      boss_stunned_a: '撞墙眩晕',
-      boss_normal_windup: '普攻前摇',
-      boss_normal_attacking: '普攻',
-      boss_normal_cooldown: '普攻冷却',
-      boss_reposition: '撞墙回位',
-      boss_phase2_trigger: '二阶段',
-      boss_triple_hit_1: '三连击 1',
-      boss_triple_hit_2: '三连击 2',
-      boss_triple_hit_3: '三连击 3',
-      boss_triple_wait_1: '连击间隔',
-      boss_triple_wait_2: '连击间隔',
-      boss_stunned_b: '连击硬直'
+      patrolling: 'PATROL',
+      chasing: 'CHASE',
+      static: 'STATIC',
+      idle: 'IDLE',
+      contact_aoe_windup: 'AOE WINDUP',
+      contact_aoe_attacking: 'AOE ATTACK',
+      contact_aoe_cooldown: 'AOE COOLDOWN',
+      windup: 'WINDUP',
+      attacking: 'ATTACK',
+      cooldown: 'COOLDOWN',
+      boss_charge_windup: 'CHARGE WINDUP',
+      boss_charging: 'CHARGING',
+      boss_stunned_a: 'STUN A',
+      boss_normal_windup: 'NORMAL WINDUP',
+      boss_normal_attacking: 'NORMAL ATTACK',
+      boss_normal_cooldown: 'NORMAL COOLDOWN',
+      boss_reposition: 'REPOSITION',
+      boss_phase2_trigger: 'PHASE 2',
+      boss_triple_hit_1: 'TRIPLE 1',
+      boss_triple_hit_2: 'TRIPLE 2',
+      boss_triple_hit_3: 'TRIPLE 3',
+      boss_triple_wait_1: 'TRIPLE WAIT',
+      boss_triple_wait_2: 'TRIPLE WAIT',
+      boss_stunned_b: 'STUN B'
     };
     return labels[phase] || phase;
   }
@@ -1248,6 +1399,9 @@ class CombatSystem {
       chasing: '#ff9f43',
       static: '#8f887b',
       idle: '#8f887b',
+      contact_aoe_windup: '#ffd166',
+      contact_aoe_attacking: '#ff6b6b',
+      contact_aoe_cooldown: '#69c0ff',
       windup: '#ffd166',
       attacking: '#ff6b6b',
       cooldown: '#69c0ff',
@@ -1276,6 +1430,10 @@ class CombatSystem {
 
     if (entity.combat.attackType === 'melee') {
       return entity.combat.aggroRange || entity.combat.range || 0;
+    }
+
+    if (entity.combat.attackType === 'contact') {
+      return entity.combat.aoeRadius || entity.combat.aggroRange || 0;
     }
 
     return entity.combat.range || 0;
@@ -1346,7 +1504,7 @@ class CombatSystem {
     this.showMeleeHitZone(entity, didHit, distance);
 
     if (!didHit) {
-      this.flashText('钀界┖', entity.sprite.x, entity.sprite.y - 42, '#8f887b');
+      this.flashText('MISS', entity.sprite.x, entity.sprite.y - 42, '#8f887b');
       this.addCombatEvent('ENEMY_ATTACK_MISSED', entity, {
         reason: 'out_of_range',
         attackType: 'charge',
@@ -1432,7 +1590,7 @@ class CombatSystem {
     this.showMeleeHitZone(entity, didHit, distance);
 
     if (!didHit) {
-      this.flashText('钀界┖', entity.sprite.x, entity.sprite.y - 42, '#8f887b');
+      this.flashText('MISS', entity.sprite.x, entity.sprite.y - 42, '#8f887b');
       this.addCombatEvent('ENEMY_ATTACK_MISSED', entity, {
         reason: 'out_of_range',
         distance: Math.ceil(distance),
@@ -1475,11 +1633,16 @@ class CombatSystem {
     const color = didHit ? 0x99ffd8 : 0x8f887b;
     const alpha = didHit ? 0.9 : 0.45;
     const direction = this.scene.player.facing || (target.sprite.x >= this.scene.player.sprite.x ? 1 : -1);
-    const swingWidth = Math.max(24, Math.min(distance, this.scene.player.attackRange));
-    const swingX = this.scene.player.sprite.x + direction * (swingWidth / 2);
+    const playerBounds = this.getPlayerHitBounds();
+    const targetBounds = this.getEntityHitBounds(target);
+    const startX = direction > 0 ? playerBounds.right : playerBounds.left;
+    const targetEdgeX = direction > 0 ? targetBounds.left : targetBounds.right;
+    const edgeGap = Math.max(0, Math.abs(targetEdgeX - startX));
+    const swingWidth = Math.max(18, Math.min(edgeGap || distance || 18, this.scene.player.attackRange));
+    const swingX = startX + direction * (swingWidth / 2);
     const swing = this.scene.add.rectangle(swingX, this.scene.player.sprite.y, swingWidth, 7, color, alpha);
     const edge = this.scene.add.circle(
-      this.scene.player.sprite.x + direction * swingWidth,
+      startX + direction * swingWidth,
       this.scene.player.sprite.y,
       10,
       color,
@@ -1536,7 +1699,7 @@ class CombatSystem {
   }
 
   updateProjectiles() {
-    const deltaSeconds = this.scene.game.loop.delta / 1000;
+    const deltaSeconds = this.scene.getRunDeltaSeconds();
 
     this.projectiles = this.projectiles.filter((projectile) => {
       projectile.sprite.x += projectile.vx * deltaSeconds;
@@ -1567,6 +1730,307 @@ class CombatSystem {
     });
   }
 
+  castPlayerSkill(skill, targetId = null) {
+    if (!skill) {
+      return { hitCount: 0 };
+    }
+
+    if (skill.id === 'piercing_flame') {
+      return this.castPiercingFlame(skill, targetId);
+    }
+
+    if (skill.id === 'burning_aura') {
+      return this.castBurningAura(skill);
+    }
+
+    if (skill.id === 'reflect_guard') {
+      return this.castReflectGuard(skill);
+    }
+
+    return { hitCount: 0 };
+  }
+
+  castPiercingFlame(skill, targetId) {
+    const target = targetId
+      ? this.scene.entities.find((entity) => entity.id === targetId && entity.active && entity.kind === 'enemy')
+      : null;
+    if (target && target.sprite) {
+      this.scene.player.facing = target.sprite.x < this.scene.player.sprite.x ? -1 : 1;
+    }
+
+    const direction = this.scene.player.facing || 1;
+    const range = skill.range || 640;
+    const startX = this.scene.player.sprite.x;
+    const endX = startX + direction * range;
+    const y = this.scene.player.sprite.y;
+    const minX = Math.min(startX, endX);
+    const maxX = Math.max(startX, endX);
+    const laneHalfHeight = 48;
+    const hits = this.scene.entities.filter((entity) => {
+      if (!entity.active || entity.kind !== 'enemy' || !entity.sprite) {
+        return false;
+      }
+      const horizontal = entity.sprite.x >= minX && entity.sprite.x <= maxX;
+      const vertical = Math.abs(entity.sprite.y - y) <= laneHalfHeight;
+      return horizontal && vertical;
+    });
+
+    this.showPlayerSkillLine(startX, endX, y, hits.length > 0);
+    hits.forEach((entity) => {
+      const baseDamage = skill.damage !== undefined
+        ? skill.damage
+        : this.scene.player.attackDamage * (skill.damageMultiplier || 1);
+      const damage = this.getPlayerSkillDamage(skill, baseDamage, entity);
+      this.damageEnemy(entity, damage, skill, 'skill_projectile');
+    });
+
+    this.addCombatEvent('PLAYER_SKILL_RESOLVED', this.scene.player, {
+      skillId: skill.id,
+      attackType: 'skill_projectile',
+      hitCount: hits.length,
+      range
+    });
+    return { hitCount: hits.length };
+  }
+
+  castBurningAura(skill) {
+    const now = this.scene.time.now;
+    const durationMs = this.getPlayerSkillDuration(skill, skill.durationMs || 0);
+    const effect = {
+      id: `effect_${skill.id}_${Math.round(now)}`,
+      skillId: skill.id,
+      skill,
+      expiresAt: now + durationMs,
+      nextTickAt: now,
+      tickMs: skill.tickMs || 1000,
+      radius: skill.radius || 120
+    };
+    this.scene.player.activeSkillEffects.push(effect);
+    this.showBurningAura(effect.radius, durationMs);
+    this.addCombatEvent('PLAYER_SKILL_EFFECT_STARTED', this.scene.player, {
+      skillId: skill.id,
+      attackType: 'skill_dot',
+      radius: effect.radius,
+      durationMs
+    });
+    return { hitCount: 0 };
+  }
+
+  castReflectGuard(skill) {
+    const now = this.scene.time.now;
+    const durationMs = this.getPlayerSkillDuration(skill, skill.durationMs || 0);
+    this.scene.player.activeReflect = {
+      skillId: skill.id,
+      skill,
+      reflectPercent: skill.reflectPercent || 1,
+      expiresAt: now + durationMs
+    };
+    this.prepareAftershock('reflect_guard_started');
+    this.showReflectGuard(durationMs);
+    this.addCombatEvent('PLAYER_SKILL_EFFECT_STARTED', this.scene.player, {
+      skillId: skill.id,
+      attackType: 'skill_reflect',
+      durationMs,
+      reflectPercent: skill.reflectPercent || 1
+    });
+    return { hitCount: 0 };
+  }
+
+  updatePlayerSkillEffects() {
+    const player = this.scene.player;
+    const now = this.scene.time.now;
+    if (player.activeReflect && now >= player.activeReflect.expiresAt) {
+      this.addCombatEvent('PLAYER_SKILL_EFFECT_ENDED', player, {
+        skillId: player.activeReflect.skillId,
+        attackType: 'skill_reflect'
+      });
+      player.activeReflect = null;
+    }
+
+    player.activeSkillEffects = (player.activeSkillEffects || []).filter((effect) => {
+      if (now >= effect.expiresAt) {
+        this.addCombatEvent('PLAYER_SKILL_EFFECT_ENDED', player, {
+          skillId: effect.skillId,
+          attackType: 'skill_dot'
+        });
+        return false;
+      }
+
+      if (now < effect.nextTickAt) {
+        return true;
+      }
+
+      effect.nextTickAt = now + effect.tickMs;
+      this.tickBurningAura(effect);
+      return true;
+    });
+  }
+
+  tickBurningAura(effect) {
+    const hits = this.scene.entities.filter((entity) => {
+      if (!entity.active || entity.kind !== 'enemy' || !entity.sprite) {
+        return false;
+      }
+      return this.getPlayerEntityBoundsDistance(entity) <= effect.radius;
+    });
+
+    hits.forEach((entity) => {
+      const damage = this.getPlayerSkillDamage(effect.skill, effect.skill.damagePerTick || 0, entity);
+      this.damageEnemy(entity, damage, effect.skill, 'skill_dot');
+    });
+
+    if (hits.length > 0) {
+      this.showBurningAuraPulse(effect.radius);
+    }
+    this.addCombatEvent('PLAYER_SKILL_DOT_TICK', this.scene.player, {
+      skillId: effect.skillId,
+      attackType: 'skill_dot',
+      hitCount: hits.length,
+      radius: effect.radius
+    });
+  }
+
+  damageEnemy(entity, amount, skill, damageType) {
+    if (!entity || !entity.active || entity.kind !== 'enemy') {
+      return false;
+    }
+
+    const damage = Math.max(1, Math.ceil(amount));
+    entity.hp = Math.max(0, (entity.hp || 0) - damage);
+    this.flashText(`-${damage}`, entity.sprite.x, entity.sprite.y - 36, '#ffcf8a');
+    this.scene.recordRunEvent('PLAYER_SKILL_DAMAGED', {
+      targetId: entity.id,
+      targetType: entity.type,
+      skillId: skill.id,
+      damageType,
+      damage,
+      targetHp: entity.hp,
+      targetMaxHp: entity.maxHp
+    });
+    if (this.scene.commandExecutor) {
+      this.scene.commandExecutor.applyPlayerLeech(damage, damageType);
+      this.scene.commandExecutor.recordChargeMarkHit(entity, damageType);
+    }
+
+    if (entity.hp <= 0 && this.scene.commandExecutor) {
+      this.scene.commandExecutor.killEnemy(entity);
+    }
+    return true;
+  }
+
+  prepareAftershock(reason) {
+    if (!this.hasSupportSkill('aftershock')) {
+      return;
+    }
+
+    const skill = this.getSupportSkillById('aftershock');
+    const state = this.scene.player.supportSkillState;
+    state.aftershockReady = true;
+    this.scene.recordRunEvent('SUPPORT_SKILL_TRIGGERED', {
+      skillId: 'aftershock',
+      reason,
+      nextAttackDamagePercent: skill.nextAttackDamagePercent || 0.5
+    });
+  }
+
+  hasSupportSkill(skillId) {
+    return (this.scene.player.supportSkillIds || []).includes(skillId);
+  }
+
+  getSupportSkillById(skillId) {
+    return window.SkillsData && SkillsData.supportSkills ? SkillsData.supportSkills[skillId] || {} : {};
+  }
+
+  getPlayerSkillDamage(skill, baseDamage, target = null) {
+    const stats = this.scene.player.skillStats || {};
+    const tags = skill.tags || [];
+    const tagDamage = tags.reduce((sum, tag) => {
+      return sum + (((stats.tagDamagePercent || {})[tag]) || 0);
+    }, 0);
+    const multiplier = 1 + (stats.damagePercent || 0) + tagDamage;
+    let damage = Math.max(1, Math.round(baseDamage * multiplier));
+    const state = this.scene.player.supportSkillState || {};
+    if (this.hasSupportSkill('charge_mark') && state.nextAttackCritChanceBonus > 0) {
+      const didCrit = Phaser.Math.FloatBetween(0, 1) < state.nextAttackCritChanceBonus;
+      const critMultiplier = window.SkillsData && SkillsData.critMultiplier ? SkillsData.critMultiplier : 1.5;
+      state.nextAttackCritChanceBonus = 0;
+      this.scene.recordRunEvent('SUPPORT_SKILL_TRIGGERED', {
+        skillId: 'charge_mark',
+        targetId: target ? target.id : null,
+        damageType: 'skill',
+        critChanceBonus: 0.4,
+        didCrit,
+        critMultiplier
+      });
+      if (didCrit) {
+        damage = Math.max(1, Math.round(damage * critMultiplier));
+      }
+    }
+    return damage;
+  }
+
+  getPlayerSkillDuration(skill, baseDurationMs) {
+    const stats = this.scene.player.skillStats || {};
+    const tags = skill.tags || [];
+    const tagDuration = tags.reduce((sum, tag) => {
+      return sum + (((stats.tagDurationPercent || {})[tag]) || 0);
+    }, 0);
+    return Math.max(100, Math.round(baseDurationMs * (1 + tagDuration)));
+  }
+
+  showPlayerSkillLine(startX, endX, y, didHit) {
+    const color = didHit ? 0xff9f43 : 0x8f887b;
+    const width = Math.abs(endX - startX);
+    const line = this.scene.add.rectangle((startX + endX) / 2, y, width, 12, color, didHit ? 0.32 : 0.16)
+      .setStrokeStyle(1, color, didHit ? 0.8 : 0.4);
+    line.setDepth(3);
+    this.scene.tweens.add({
+      targets: line,
+      alpha: 0,
+      duration: 280,
+      onComplete: () => line.destroy()
+    });
+  }
+
+  showBurningAura(radius, durationMs) {
+    const circle = this.scene.add.circle(this.scene.player.sprite.x, this.scene.player.sprite.y, radius, 0xff7a3d, 0.12)
+      .setStrokeStyle(2, 0xff9f43, 0.5);
+    circle.setDepth(2);
+    this.scene.tweens.add({
+      targets: circle,
+      alpha: 0,
+      scale: 1.15,
+      duration: Math.min(durationMs, 900),
+      onComplete: () => circle.destroy()
+    });
+  }
+
+  showBurningAuraPulse(radius) {
+    const circle = this.scene.add.circle(this.scene.player.sprite.x, this.scene.player.sprite.y, radius, 0xff7a3d, 0.08)
+      .setStrokeStyle(1, 0xff9f43, 0.45);
+    circle.setDepth(2);
+    this.scene.tweens.add({
+      targets: circle,
+      alpha: 0,
+      scale: 1.08,
+      duration: 360,
+      onComplete: () => circle.destroy()
+    });
+  }
+
+  showReflectGuard(durationMs) {
+    const circle = this.scene.add.circle(this.scene.player.sprite.x, this.scene.player.sprite.y, 68, 0x99ffd8, 0.12)
+      .setStrokeStyle(2, 0x99ffd8, 0.6);
+    circle.setDepth(4);
+    this.scene.tweens.add({
+      targets: circle,
+      alpha: 0,
+      scale: 1.45,
+      duration: Math.min(durationMs, 900),
+      onComplete: () => circle.destroy()
+    });
+  }
+
   isProjectileHittingPlayer(projectile) {
     const bounds = this.getPlayerHitBounds();
     const projectileRadius = 7;
@@ -1578,9 +2042,10 @@ class CombatSystem {
   }
 
   getPlayerHitBounds() {
+    const player = this.scene.player;
     const sprite = this.scene.player.sprite;
-    const width = sprite.width || 42;
-    const height = sprite.height || 60;
+    const width = player.hitboxWidth || sprite.logicalWidth || sprite.width || 42;
+    const height = player.hitboxHeight || sprite.logicalHeight || sprite.height || 60;
     return {
       left: sprite.x - width / 2,
       right: sprite.x + width / 2,
@@ -1618,6 +2083,23 @@ class CombatSystem {
 
   applyDamage(amount, source, damageType) {
     const now = this.scene.time.now;
+    if (this.scene.player.activeReflect && now <= this.scene.player.activeReflect.expiresAt) {
+      const reflected = Math.max(1, Math.ceil(amount * (this.scene.player.activeReflect.reflectPercent || 1)));
+      const sourceEntity = this.scene.entities.find((entity) => entity.id === source.id && entity.active && entity.kind === 'enemy');
+      if (sourceEntity) {
+        this.damageEnemy(sourceEntity, reflected, this.scene.player.activeReflect.skill, 'skill_reflect');
+      }
+      this.flashText('\u53cd\u4f24', this.scene.player.sprite.x, this.scene.player.sprite.y - 44, '#99ffd8');
+      this.addCombatEvent('PLAYER_REFLECTED_DAMAGE', source, {
+        amount: reflected,
+        blockedAmount: amount,
+        damageType,
+        skillId: this.scene.player.activeReflect.skillId,
+        hp: Math.ceil(this.scene.player.hp)
+      });
+      return false;
+    }
+
     if (this.scene.player.dashInvulnerableUntil && now <= this.scene.player.dashInvulnerableUntil) {
       this.flashText('DASH', this.scene.player.sprite.x, this.scene.player.sprite.y - 44, '#69c0ff');
       this.addCombatEvent('PLAYER_DODGED', source, {
@@ -1643,12 +2125,31 @@ class CombatSystem {
       this.scene.player.defendingUntil = -Infinity;
     }
 
+    let incomingAmount = amount;
+    const shieldedAmount = this.tryEmergencyShield(incomingAmount, source, damageType);
+    if (shieldedAmount >= incomingAmount) {
+      return false;
+    }
+    incomingAmount -= shieldedAmount;
+
+    this.updateDotDamageState(damageType);
+
+    if (this.hasSupportSkill('resilience')) {
+      const skill = this.getSupportSkillById('resilience');
+      incomingAmount = Math.ceil(incomingAmount * (1 - (skill.damageReductionPercent || 0.1)));
+    }
+
+    const equipmentReduction = Math.max(0, Math.min(0.8, this.scene.player.damageReductionPercent || 0));
+    if (equipmentReduction > 0) {
+      incomingAmount = Math.max(1, Math.ceil(incomingAmount * (1 - equipmentReduction)));
+    }
+
     const finalAmount = this.scene.player.isDefending
-      ? Math.ceil(amount * 0.5)
-      : amount;
+      ? Math.ceil(incomingAmount * 0.5)
+      : incomingAmount;
     this.scene.player.hp = Math.max(0, this.scene.player.hp - finalAmount);
-    this.scene.player.damageInvulnerableUntil = now + 900;
-    if (damageType === 'melee' || damageType === 'charge' || damageType === 'boss_charge' || damageType === 'boss_normal' || damageType === 'boss_triple' || damageType === 'contact_bump') {
+    this.scene.player.damageInvulnerableUntil = now + 260;
+    if (damageType === 'melee' || damageType === 'charge' || damageType === 'boss_charge' || damageType === 'boss_normal' || damageType === 'boss_triple' || damageType === 'contact' || damageType === 'contact_bump') {
       this.flashText(`-${finalAmount}`, this.scene.player.sprite.x, this.scene.player.sprite.y - 44, '#ff6b6b');
     }
     this.addCombatEvent('PLAYER_DAMAGED', source, {
@@ -1660,6 +2161,45 @@ class CombatSystem {
     });
     this.applyDamageKnockback(source, damageType);
     return true;
+  }
+
+  tryEmergencyShield(amount, source, damageType) {
+    if (!this.hasSupportSkill('emergency_shield')) {
+      return 0;
+    }
+
+    const player = this.scene.player;
+    const state = player.supportSkillState || {};
+    if (player.maxHp <= 0 || this.scene.time.now < (state.emergencyShieldReadyAt || 0)) {
+      return 0;
+    }
+
+    const skill = this.getSupportSkillById('emergency_shield');
+    const absorbAmount = Math.min(amount, Math.ceil(player.maxHp * (skill.absorbMaxHpRatio || 0.2)));
+    state.emergencyShieldReadyAt = this.scene.time.now + (skill.intervalMs || 60000);
+    this.flashText('SHIELD', player.sprite.x, player.sprite.y - 54, '#99ffd8');
+    this.addCombatEvent('SUPPORT_SKILL_TRIGGERED', source, {
+      skillId: 'emergency_shield',
+      damageType,
+      absorbed: absorbAmount,
+      nextReadyInMs: skill.intervalMs || 60000,
+      hp: Math.ceil(player.hp)
+    });
+    this.prepareAftershock('emergency_shield_triggered');
+    return absorbAmount;
+  }
+
+  updateDotDamageState(damageType) {
+    if (!this.isDotDamageType(damageType)) {
+      return;
+    }
+
+    const state = this.scene.player.supportSkillState || {};
+    state.takingDotDamageUntil = this.scene.time.now + 1200;
+  }
+
+  isDotDamageType(damageType) {
+    return ['dot', 'burn', 'burning', 'curse', 'poison', 'hazard_dot'].includes(damageType);
   }
 
   recordProjectileDodge(projectile) {
@@ -2141,7 +2681,10 @@ class CombatSystem {
         source &&
         source.active &&
         source.combatState &&
-        (source.combatState.phase === 'windup' || source.combatState.phase === 'attacking')
+        (source.combatState.phase === 'windup' ||
+          source.combatState.phase === 'attacking' ||
+          source.combatState.phase === 'contact_aoe_windup' ||
+          source.combatState.phase === 'contact_aoe_attacking')
       );
     }
 
@@ -2151,7 +2694,7 @@ class CombatSystem {
         source &&
         source.active &&
         source.combatState &&
-        source.combatState.phase === 'cooldown'
+        (source.combatState.phase === 'cooldown' || source.combatState.phase === 'contact_aoe_cooldown')
       );
     }
 

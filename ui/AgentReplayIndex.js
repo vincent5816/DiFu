@@ -8,8 +8,13 @@ class AgentReplayIndex {
       '',
       '表达要求：不要使用事件名、字段名、毫秒时间、JSON、日志口吻。不要修改游戏源码。像一个冷静、危险、话少的同伴一样说话。你可以说“我被爪子打中了”“我没躲开正面的冲锋”“我那一刀太远了”。',
       '',
+      '人称要求：参与冒险、移动、出刀、释放技能、受伤、死亡、撤回和带回战利品的是“我”，不是玩家。不要说“你打出去的刀”“你被打中”“你带回了装备”；应该说“我打出去的刀”“我被打中”“我带回了装备”。“你”只能指玩家做决定、定策略、选打法。',
+      '',
       '## 我这局的结局',
       ...AgentReplayIndex.createOutcomeLines(summary, analysis),
+      '',
+      '## 本局信号',
+      ...AgentReplayIndex.createSignalLines(summary, analysis),
       '',
       '## 我看见的敌人',
       ...AgentReplayIndex.createEnemyLines(analysis),
@@ -20,7 +25,7 @@ class AgentReplayIndex {
       '## 我做过的应对',
       ...AgentReplayIndex.createResponseLines(analysis),
       '',
-      '## 我倒下的原因',
+      AgentReplayIndex.getTroubleTitle(summary),
       ...AgentReplayIndex.createFailureLines(summary, analysis),
       '',
       '## 下一轮该一起商量',
@@ -52,16 +57,26 @@ class AgentReplayIndex {
     const commandEvents = events.filter((event) => event.type === 'COMMAND_EXECUTED');
     const damageEvents = events.filter((event) => event.type === 'PLAYER_DAMAGED');
     const dodgeEvents = events.filter((event) => event.type === 'PLAYER_DODGED');
-    const ignoredEvents = events.filter((event) => event.type === 'REACTION_IGNORED');
+    const ignoredEvents = events.filter((event) => {
+      return event.type === 'REACTION_IGNORED' || event.type === 'COMBAT_THREAT_IGNORED';
+    });
     const attackFailedEvents = events.filter((event) => event.type === 'PLAYER_ATTACK_FAILED');
     const playerAttackEvents = events.filter((event) => event.type === 'PLAYER_ATTACKED');
+    const skillDamageEvents = events.filter((event) => event.type === 'PLAYER_SKILL_DAMAGED');
     const bossAttackEvents = playerAttackEvents.filter((event) => event.details.targetId === 'boss_001');
-    const lastBossAttack = bossAttackEvents[bossAttackEvents.length - 1] || null;
+    const bossSkillEvents = skillDamageEvents.filter((event) => event.details.targetId === 'boss_001');
+    const bossHitEvents = [...bossAttackEvents, ...bossSkillEvents].sort((a, b) => a.time - b.time);
+    const lastBossHit = bossHitEvents[bossHitEvents.length - 1] || null;
     const lastDamage = damageEvents[damageEvents.length - 1] || null;
     const firstBossSeen = events.find((event) => {
       return event.type === 'VISION_ENTITY_ENTERED' && event.details.entityId === 'boss_001';
     });
     const firstBossCharge = events.find((event) => event.type === 'BOSS_CHARGE_WINDUP');
+    const bossDeathEvent = events.find((event) => {
+      const details = event.details || {};
+      return event.type === 'ENEMY_DIED' && details.targetId === 'boss_001';
+    });
+    const bossReturnUnlocked = events.some((event) => event.type === 'BOSS_RETURN_POINT_UNLOCKED');
 
     return {
       events,
@@ -71,11 +86,17 @@ class AgentReplayIndex {
       ignoredEvents,
       attackFailedEvents,
       playerAttackEvents,
+      skillDamageEvents,
       bossAttackEvents,
-      lastBossAttack,
+      bossSkillEvents,
+      bossHitEvents,
+      lastBossHit,
       lastDamage,
       firstBossSeen,
       firstBossCharge,
+      bossDeathEvent,
+      bossReturnUnlocked,
+      bossDefeated: Boolean(bossDeathEvent || bossReturnUnlocked),
       enemies: AgentReplayIndex.getObservedEnemies(events),
       moves: AgentReplayIndex.getObservedBossMoves(events),
       damageByType: AgentReplayIndex.countByDetail(damageEvents, 'damageType'),
@@ -100,15 +121,128 @@ class AgentReplayIndex {
       lines.push(`- 这一局停在第 ${summary.floor} 层的 ${summary.roomId}。最后血量是 ${hpText}。`);
     }
 
-    if (analysis.lastBossAttack) {
-      lines.push(`- Boss 没死。我最后一次砍中它时，它还剩${AgentReplayIndex.getHpRatioText(analysis.lastBossAttack)}。`);
+    if (analysis.bossDefeated) {
+      lines.push('- Boss 被我打倒了。它倒下后，宝箱和回程的门才露出来。');
+    } else if (analysis.lastBossHit) {
+      lines.push(`- Boss 没死。我最后一次打中它时，它还剩${AgentReplayIndex.getHpRatioText(analysis.lastBossHit)}。`);
     }
 
     if (summary.bag && summary.bag.used > 0) {
-      lines.push(`- 我身上还有 ${summary.bag.used} 件东西。没能安全带回来。`);
+      if (summary.result === 'retreat') {
+        lines.push(`- 我带回了 ${summary.bag.used} 件东西。`);
+      } else if (summary.result === 'death') {
+        lines.push(`- 我身上原本还有 ${summary.bag.used} 件东西。没能安全带回来。`);
+      } else {
+        lines.push(`- 我身上还有 ${summary.bag.used} 件东西。还没结算。`);
+      }
     }
 
     return lines;
+  }
+
+  static createSignalLines(summary, analysis) {
+    const items = AgentReplayIndex.getLootItems(summary);
+    const lines = [
+      `- RESULT_${AgentReplayIndex.getResultSignal(summary.result)}`,
+      `- BOSS_${analysis.bossDefeated ? 'DEFEATED' : 'NOT_DEFEATED'}`
+    ];
+
+    if (items.length === 0) {
+      lines.push('- LOOT_TIER_NONE');
+      lines.push('- LOOT_COUNTS none');
+      return lines;
+    }
+
+    const counts = AgentReplayIndex.countLootQualities(items);
+    const bestQuality = AgentReplayIndex.getBestQuality(counts);
+    lines.push(`- LOOT_TIER_${bestQuality.toUpperCase()}`);
+    lines.push(`- LOOT_TOTAL ${items.length}`);
+    lines.push(`- LOOT_COUNTS ${AgentReplayIndex.formatSignalQualityCounts(counts)}`);
+
+    if (summary.result === 'retreat') {
+      lines.push('- LOOT_STATUS_RETURNED');
+    } else if (summary.result === 'death') {
+      lines.push('- LOOT_STATUS_LOST_OR_PARTIAL');
+    } else {
+      lines.push('- LOOT_STATUS_UNSETTLED');
+    }
+
+    return lines;
+  }
+
+  static getResultSignal(result) {
+    if (result === 'retreat') {
+      return 'RETURN_SUCCESS';
+    }
+    if (result === 'death') {
+      return 'DEATH';
+    }
+    return 'UNSETTLED';
+  }
+
+  static getLootItems(summary) {
+    const bagItems = summary.bag && Array.isArray(summary.bag.items) ? summary.bag.items : [];
+    const lostItems = Array.isArray(summary.lostItems) ? summary.lostItems : [];
+    const seen = new Set();
+    return [...bagItems, ...lostItems].filter((item) => {
+      if (!item || item.kind && item.kind !== 'equipment') {
+        return false;
+      }
+      const key = item.id || `${item.quality || 'unknown'}:${seen.size}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
+  static countLootQualities(items) {
+    return items.reduce((counts, item) => {
+      const quality = item.quality || 'unknown';
+      counts[quality] = (counts[quality] || 0) + 1;
+      return counts;
+    }, {});
+  }
+
+  static formatQualityParts(counts) {
+    return AgentReplayIndex.getQualityOrder()
+      .filter((quality) => counts[quality] > 0)
+      .map((quality) => `${AgentReplayIndex.getQualityName(quality)} ${counts[quality]} 件`);
+  }
+
+  static formatSignalQualityCounts(counts) {
+    return AgentReplayIndex.getQualityOrder()
+      .filter((quality) => counts[quality] > 0)
+      .map((quality) => `${quality}:${counts[quality]}`)
+      .join(', ');
+  }
+
+  static getBestQuality(counts) {
+    const order = AgentReplayIndex.getQualityOrder();
+    for (let index = order.length - 1; index >= 0; index -= 1) {
+      const quality = order[index];
+      if (counts[quality] > 0) {
+        return quality;
+      }
+    }
+    return 'unknown';
+  }
+
+  static getQualityName(quality) {
+    const names = {
+      normal: '白装',
+      magic: '蓝装',
+      rare: '黄装',
+      epic: '紫装',
+      legendary: '传奇',
+      unknown: '未知品级'
+    };
+    return names[quality] || quality;
+  }
+
+  static getQualityOrder() {
+    return ['unknown', 'normal', 'magic', 'rare', 'epic', 'legendary'];
   }
 
   static createEnemyLines(analysis) {
@@ -169,8 +303,15 @@ class AgentReplayIndex {
     if (defendedHits > 0) {
       lines.push(`- 我防住过 ${defendedHits} 次攻击。伤害被压下来了，但血还在掉。`);
     }
-    if (analysis.bossAttackEvents.length > 0) {
-      lines.push(`- 我砍中过 Boss ${analysis.bossAttackEvents.length} 次。能打掉血，但不能只靠贪刀。`);
+    if (analysis.bossHitEvents.length > 0) {
+      const parts = [];
+      if (analysis.bossSkillEvents.length > 0) {
+        parts.push(`主动技能 ${analysis.bossSkillEvents.length} 次`);
+      }
+      if (analysis.bossAttackEvents.length > 0) {
+        parts.push(`平砍 ${analysis.bossAttackEvents.length} 次`);
+      }
+      lines.push(`- 我打中过 Boss ${analysis.bossHitEvents.length} 次，${parts.join('，')}。能打掉血，但不能只靠贪刀。`);
     }
     if (cooldownFails > 0) {
       lines.push(`- 我有 ${cooldownFails} 刀出早了。刀还没回过来。`);
@@ -180,6 +321,10 @@ class AgentReplayIndex {
     }
 
     return lines.length > 0 ? lines : ['- 我这局几乎没有做出有效应对。'];
+  }
+
+  static getTroubleTitle(summary) {
+    return summary.result === 'death' ? '## 我倒下的原因' : '## 我这局吃亏的地方';
   }
 
   static createFailureLines(summary, analysis) {
@@ -198,8 +343,10 @@ class AgentReplayIndex {
     if (contactDamage > 0) {
       lines.push('- 我贴得太近时会被它身体顶开。伤害不高，但位置会乱。');
     }
-    if (tripleDamage > 0) {
+    if (tripleDamage > 0 && summary.result === 'death') {
       lines.push('- 进入二阶段后，我没处理好三连。最后就是被这套收掉的。');
+    } else if (tripleDamage > 0) {
+      lines.push('- 进入二阶段后，三连还是打中过我。它没收掉我，但这个窗口不能再硬吃。');
     }
     if (analysis.lowHpAttack) {
       lines.push('- 血线见底后，我还在挥刀。那不是勇，是把最后的容错烧掉。');
@@ -208,7 +355,13 @@ class AgentReplayIndex {
       lines.push('- 我死前已经没有余量。最后一击不是意外，是前面留下的债。');
     }
 
-    return lines.length > 0 ? lines : ['- 我倒下的原因还不清楚。下一局需要靠画面和这份经历一起复盘。'];
+    if (lines.length > 0) {
+      return lines;
+    }
+
+    return summary.result === 'death'
+      ? ['- 我倒下的原因还不清楚。下一局需要靠画面和这份经历一起复盘。']
+      : ['- 我没有倒下，但这不代表打法干净。下一局仍然要看哪些伤害本可以不吃。'];
   }
 
   static createDiscussionLines(analysis) {
@@ -228,10 +381,18 @@ class AgentReplayIndex {
 
   static getObservedEnemies(events) {
     const enemies = new Set();
+    const ignoredTypes = new Set([
+      'player',
+      'paper_money',
+      'unidentified_equipment',
+      'paper_money_chest',
+      'return_gate',
+      'supply_heal_point'
+    ]);
     events.forEach((event) => {
       const details = event.details || {};
-      const type = details.type || details.sourceType;
-      if (type && type !== 'return_gate') {
+      const type = details.type || details.sourceType || details.targetType;
+      if (type && !ignoredTypes.has(type)) {
         enemies.add(type);
       }
     });

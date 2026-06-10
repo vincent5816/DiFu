@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>地府生存指下</title>
+    <title>Hell Survival</title>
     <style>
       html,
       body {
@@ -22,6 +22,7 @@
 
       #game canvas {
         display: block;
+        image-rendering: auto;
       }
 
       .strategy-editor {
@@ -197,6 +198,21 @@
         color: #f2eee2;
       }
 
+      .startup-error-panel {
+        z-index: 1200;
+      }
+
+      .startup-error-panel pre {
+        min-height: 0;
+        overflow: auto;
+        white-space: pre-wrap;
+        padding: 14px;
+        border: 1px solid #5a554c;
+        background: rgba(8, 8, 10, 0.78);
+        color: #ffb3a8;
+        font: 13px/1.45 Consolas, "Courier New", monospace;
+      }
+
       .game-dom-footer {
         display: flex;
         justify-content: space-between;
@@ -243,6 +259,19 @@
         min-width: 0;
       }
 
+      .player-summary-list {
+        display: grid;
+        gap: 5px;
+        margin: 8px 0 18px;
+      }
+
+      .return-events-section {
+        min-height: 0;
+        overflow: auto;
+        border-top: 1px solid rgba(140, 128, 108, 0.35);
+        padding-top: 14px;
+      }
+
       .item-list,
       .event-list {
         display: grid;
@@ -266,6 +295,433 @@
       .danger {
         color: #ff9d8f !important;
       }
+
+      .storage-panel {
+        gap: 14px;
+      }
+
+      .storage-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .storage-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .storage-actions button,
+      .equipment-slot,
+      .storage-item,
+      .skill-choice {
+        border: 1px solid #5a554c;
+        background: #15151b;
+        color: #f4f1e8;
+        cursor: pointer;
+      }
+
+      .storage-actions button {
+        min-height: 34px;
+        padding: 8px 12px;
+      }
+
+      .storage-actions button:hover,
+      .equipment-slot:hover,
+      .storage-item:hover,
+      .skill-choice:hover {
+        border-color: #a99c84;
+        background: #1f1f27;
+      }
+
+      .storage-layout {
+        display: grid;
+        grid-template-columns: minmax(320px, 0.95fr) minmax(280px, 0.9fr) minmax(340px, 1.05fr);
+        gap: 18px;
+        min-height: 0;
+        flex: 1 1 auto;
+      }
+
+      .equipment-board,
+      .storage-list-panel,
+      .character-attributes-panel {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .section-title {
+        color: #f2eee2;
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .equipment-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .equipment-slot {
+        aspect-ratio: 1.08;
+        display: grid;
+        align-content: space-between;
+        gap: 6px;
+        padding: 10px;
+        text-align: left;
+        border-radius: 6px;
+      }
+
+      .equipment-slot.is-empty {
+        color: #8f887b;
+        border-style: dashed;
+        background: rgba(13, 13, 17, 0.68);
+      }
+
+      .slot-name,
+      .storage-item-sub,
+      .tooltip-meta {
+        color: #8f887b;
+        font-size: 12px;
+      }
+
+      .slot-empty {
+        color: #5f5a51;
+        font-size: 18px;
+      }
+
+      .item-name {
+        font-size: 14px;
+        line-height: 1.3;
+      }
+
+      .item-meta {
+        color: #c9c1b1;
+        font-size: 12px;
+      }
+
+      .storage-list {
+        display: grid;
+        gap: 8px;
+        min-height: 0;
+        overflow: auto;
+        padding-right: 4px;
+      }
+
+      .storage-item {
+        display: grid;
+        gap: 5px;
+        padding: 10px;
+        text-align: left;
+        border-radius: 6px;
+      }
+
+      .storage-item-main {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .storage-item.is-selected {
+        border-color: #f2eee2;
+      }
+
+      .storage-item.is-equipped {
+        background: #202016;
+      }
+
+      .item-tooltip {
+        position: absolute;
+        z-index: 10;
+        width: min(360px, calc(100vw - 36px));
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid #786e5f;
+        background: rgba(13, 13, 17, 0.96);
+        border-radius: 6px;
+        box-shadow: 0 16px 36px rgba(0, 0, 0, 0.46);
+      }
+
+      .item-tooltip[hidden] {
+        display: none;
+      }
+
+      .tooltip-title {
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .item-warning {
+        color: #ffcf8a;
+        font-size: 13px;
+      }
+
+      .attribute-list {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        min-height: 0;
+        overflow: auto;
+        padding: 12px;
+        border: 1px solid #3e3a34;
+        background: rgba(13, 13, 17, 0.72);
+        border-radius: 6px;
+      }
+
+      .build-config {
+        flex: 1 1 34%;
+        min-height: 0;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid #3e3a34;
+        background: rgba(13, 13, 17, 0.72);
+        border-radius: 6px;
+      }
+
+      .skill-slot {
+        border: 1px solid rgba(140, 128, 108, 0.35);
+        border-radius: 6px;
+        background: rgba(21, 21, 27, 0.86);
+      }
+
+      .skill-slot-header {
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(140, 128, 108, 0.22);
+      }
+
+      .skill-slot-label {
+        color: #c9c1b1;
+        font-size: 13px;
+      }
+
+      .skill-slot-current {
+        color: #f4f1e8;
+        font-size: 14px;
+        text-align: right;
+      }
+
+      .skill-choice-list {
+        display: grid;
+        gap: 6px;
+        max-height: 100%;
+        overflow: auto;
+        padding: 8px;
+      }
+
+      .skill-choice {
+        display: grid;
+        gap: 3px;
+        width: 100%;
+        padding: 8px 10px;
+        text-align: left;
+        border-radius: 6px;
+      }
+
+      .skill-choice.is-selected {
+        border-color: #76e0a6;
+        background: rgba(35, 69, 53, 0.58);
+      }
+
+      .skill-choice-tags {
+        color: #8f887b;
+        font-size: 11px;
+      }
+
+      .skill-config-panel {
+        gap: 14px;
+      }
+
+      .skill-config-layout {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow: auto;
+      }
+
+      .skill-config-card {
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .skill-config-card .skill-slot {
+        height: 100%;
+        overflow: auto;
+      }
+
+      .skill-tooltip {
+        position: absolute;
+        z-index: 10;
+        width: min(360px, calc(100vw - 36px));
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid #6f8066;
+        background: rgba(13, 17, 15, 0.97);
+        border-radius: 6px;
+        box-shadow: 0 16px 36px rgba(0, 0, 0, 0.46);
+      }
+
+      .skill-tooltip[hidden] {
+        display: none;
+      }
+
+      .skill-tooltip-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .skill-tooltip-tags span {
+        padding: 3px 7px;
+        border: 1px solid rgba(118, 224, 166, 0.28);
+        background: rgba(118, 224, 166, 0.08);
+        color: #9ff0bf;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+
+      .skill-tooltip-description {
+        color: #f4f1e8;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .attribute-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding-bottom: 7px;
+        border-bottom: 1px solid rgba(140, 128, 108, 0.18);
+        font-size: 14px;
+      }
+
+      .attribute-row:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .attribute-value {
+        white-space: nowrap;
+      }
+
+      .attribute-base {
+        color: #f4f1e8;
+      }
+
+      .attribute-bonus {
+        color: #76e0a6;
+      }
+
+      .affix-list {
+        display: grid;
+        gap: 7px;
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .affix-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 0;
+        border-bottom: 1px solid rgba(140, 128, 108, 0.2);
+        font-size: 14px;
+      }
+
+      .base-affix-row {
+        align-items: center;
+        padding: 7px 9px;
+        border: 1px solid rgba(255, 209, 102, 0.18);
+        border-left: 3px solid #ffd166;
+        background: rgba(255, 209, 102, 0.08);
+        color: #f6df9b;
+        border-radius: 4px;
+      }
+
+      .base-affix-row span:last-child {
+        color: #fff1c2;
+        font-weight: 700;
+      }
+
+      .empty-state {
+        color: #8f887b;
+        padding: 10px 0;
+      }
+
+      .quality-normal {
+        border-color: #c9c1b1;
+      }
+
+      .quality-text-normal {
+        color: #c9c1b1;
+      }
+
+      .quality-magic {
+        border-color: #4f8cff;
+      }
+
+      .quality-text-magic {
+        color: #6ea2ff;
+      }
+
+      .quality-rare {
+        border-color: #ffc857;
+      }
+
+      .quality-text-rare {
+        color: #ffc857;
+      }
+
+      .quality-epic {
+        border-color: #9f7aea;
+      }
+
+      .quality-text-epic {
+        color: #b997ff;
+      }
+
+      .quality-legendary {
+        border-color: #ff9f43;
+      }
+
+      .quality-text-legendary {
+        color: #ffb45f;
+      }
+
+      @media (max-width: 980px) {
+        .storage-layout {
+          grid-template-columns: 1fr;
+          overflow: auto;
+        }
+
+        .equipment-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .skill-config-layout {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
   </head>
   <body>
@@ -274,42 +730,63 @@
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
 
     <script>
-      window.HELL_SURVIVAL_CODE_VERSION = '2026-06-04-realtime-chase-commands';
+      window.HELL_SURVIVAL_CODE_VERSION = '2026-06-07-melee-range-footwork-v1';
     </script>
 
-    <script src="core/StrategyCompiler.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="core/AgentRunner.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="core/StrategyConfig.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="core/StateSnapshot.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="core/EventSystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="core/CommandExecutor.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="core/StrategyCompiler.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="core/AgentRunner.js?v=2026-06-07-melee-range-footwork-v1"></script>
+    <script src="core/StrategyConfig.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="core/StateSnapshot.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="core/EventSystem.js?v=2026-06-07-pickup-boss-safety-v1"></script>
+    <script src="core/CommandExecutor.js?v=2026-06-07-attack-pickup-cleanup-v1"></script>
 
-    <script src="data/enemies/enemies.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="data/player/player.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="data/floors/floor1.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="data/enemies/enemies.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="data/equipment.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="data/equipmentBases.js?v=2026-06-07-equipment-bases-v1"></script>
+    <script src="data/skills.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="data/player/player.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="data/floors/floor1.js?v=2026-06-07-skill-core-v1"></script>
 
-    <script src="systems/CombatSystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="systems/InventorySystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="systems/HazardSystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="systems/LootSystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="systems/MapSystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="systems/MovementSystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="systems/ProgressSystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="systems/RunRecorder.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="systems/SettlementSystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="systems/StorageSystem.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="ui/HUD.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="ui/AgentReplayIndex.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="ui/ReplayFormatter.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="systems/CombatSystem.js?v=2026-06-07-attack-pickup-cleanup-v1"></script>
+    <script src="systems/InventorySystem.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="systems/EquipmentSystem.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="systems/HazardSystem.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="systems/LootSystem.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="systems/MapSystem.js?v=2026-06-10-ranged-b-sprite-v1"></script>
+    <script src="systems/MovementSystem.js?v=2026-06-07-melee-range-footwork-v1"></script>
+    <script src="systems/ProgressSystem.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="systems/RunRecorder.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="systems/SettlementSystem.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="systems/StorageSystem.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="ui/HUD.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="ui/AgentReplayIndex.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="ui/ReplayFormatter.js?v=2026-06-07-skill-core-v1"></script>
 
-    <script src="scenes/BootScene.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="scenes/MenuScene.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="scenes/DungeonScene.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="scenes/ReturnScene.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="scenes/ReplayScene.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="scenes/CodexScene.js?v=2026-06-04-realtime-chase-commands"></script>
-    <script src="scenes/StorageScene.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="scenes/BootScene.js?v=2026-06-10-ranged-b-sprite-v1"></script>
+    <script src="image/player-role-3-data.js?v=2026-06-09-player-role-3-clean-data-v1"></script>
+    <script src="image/m-1-1-data.js?v=2026-06-09-m-1-1-clean-data-v1"></script>
+    <script src="image/m-prd-1-data.js?v=2026-06-09-m-prd-1-contact-a-data-v1"></script>
+    <script src="image/m-shishan-1-data.js?v=2026-06-09-m-shishan-1-contact-b-data-v1"></script>
+    <script src="image/m-jixiao-1-data.js?v=2026-06-09-m-jixiao-1-melee-a-data-v1"></script>
+    <script src="image/m-nianzhong-1-data.js?v=2026-06-09-m-nianzhong-1-melee-b-data-v2"></script>
+    <script src="image/m-feishu-1-data.js?v=2026-06-10-m-feishu-1-ranged-a-data-v1"></script>
+    <script src="image/m-feishu-2-data.js?v=2026-06-10-m-feishu-2-ranged-b-data-v1"></script>
+    <script src="image/bg-1-3-data.js?v=2026-06-08-bg-1-3-data-v1"></script>
+    <script src="image/bg-2-1-data.js?v=2026-06-08-bg-2-1-data-v1"></script>
+    <script src="image/bg-3-2-data.js?v=2026-06-08-bg-3-2-data-v1"></script>
+    <script src="image/bg-4-6-data.js?v=2026-06-09-bg-4-6-data-v1"></script>
+    <script src="image/bg-5-5-data.js?v=2026-06-09-bg-5-5-data-v1"></script>
+    <script src="image/bg-6-1-data.js?v=2026-06-09-bg-6-1-data-v1"></script>
+    <script src="image/bg-7-2-data.js?v=2026-06-09-bg-7-2-data-v1"></script>
+    <script src="image/bg-8-3-data.js?v=2026-06-09-bg-8-3-data-v1"></script>
+    <script src="scenes/MenuScene.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="scenes/DungeonScene.js?v=2026-06-09-player-role-aspect-v1"></script>
+    <script src="scenes/ReturnScene.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="scenes/ReplayScene.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="scenes/CodexScene.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="scenes/SkillConfigScene.js?v=2026-06-07-skill-core-v1"></script>
+    <script src="scenes/StorageScene.js?v=2026-06-07-skill-core-v1"></script>
 
-    <script src="game.js?v=2026-06-04-realtime-chase-commands"></script>
+    <script src="game.js?v=2026-06-07-render-resolution-v1"></script>
   </body>
 </html>

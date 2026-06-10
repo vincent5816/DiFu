@@ -26,6 +26,9 @@ class StateSnapshot {
       maxHp: player.maxHp,
       mp: player.mp,
       maxMp: player.maxMp,
+      mpRegenPerSecond: player.mpRegenPerSecond || 0,
+      hpRegenPerSecond: player.hpRegenPerSecond || 0,
+      hpLeechPerHit: player.hpLeechPerHit || 0,
       gold: player.gold,
       x: Math.round(player.sprite.x),
       y: Math.round(player.sprite.y),
@@ -46,15 +49,85 @@ class StateSnapshot {
       dashCooldownRemainingMs: Math.max(0, (player.dashCooldownMs || 5000) - (scene.time.now - player.lastDashAt)),
       defendRemainingMs: player.isDefending ? Math.max(0, Math.ceil(player.defendingUntil - scene.time.now)) : 0,
       attackDamage: player.attackDamage,
+      attackDamageMin: player.attackDamageMin || player.attackDamage,
+      attackDamageMax: player.attackDamageMax || player.attackDamage,
       attackRange: player.attackRange,
       attackCooldownMs: player.attackCooldownMs,
+      attackSpeed: player.attackSpeed || 0,
       attackCooldownRemainingMs: Math.max(0, (player.attackCooldownMs || 0) - (scene.time.now - player.lastAttackAt)),
+      moveSpeedPercent: player.moveSpeedPercent || 0,
+      armor: player.armor || 0,
+      damageReductionPercent: player.damageReductionPercent || 0,
+      resistancePercent: player.resistancePercent || 0,
+      critChancePercent: player.critChancePercent || 0,
+      critDamagePercent: player.critDamagePercent || 0,
+      skills: StateSnapshot.createSkillSnapshot(scene),
       buffs: player.buffs.map((buff) => ({
         type: buff.type,
         remainingTime: buff.remainingTime
       })),
-      bag
+      bag,
+      equipment: scene.equipmentSystem ? scene.equipmentSystem.getSnapshot() : {}
     };
+  }
+
+  static createSkillSnapshot(scene) {
+    const player = scene.player;
+    const skills = (player.skills || []).map((skillId) => {
+      const skill = window.SkillsData && SkillsData.skills ? SkillsData.skills[skillId] : null;
+      const readyAt = player.skillCooldowns ? player.skillCooldowns[skillId] || -Infinity : -Infinity;
+      const cooldownRemainingMs = StateSnapshot.getRemainingMs(scene, readyAt);
+      return {
+        id: skillId,
+        name: skill ? skill.name : skillId,
+        active: skillId === player.activeSkillId,
+        mpCost: skill ? skill.mpCost || 0 : 0,
+        cooldownMs: skill ? StateSnapshot.getSkillCooldownMs(scene, skill) : 0,
+        cooldownRemainingMs,
+        ready: cooldownRemainingMs <= 0,
+        tags: skill ? [...(skill.tags || [])] : [],
+        element: skill ? skill.element || null : null
+      };
+    });
+
+    return {
+      activeSkillId: player.activeSkillId || null,
+      activeSkill: skills.find((skill) => skill.active) || null,
+      list: skills,
+      supportSkillIds: [...(player.supportSkillIds || [])],
+      supportSkills: (player.supportSkillIds || []).map((skillId) => {
+        const skill = window.SkillsData && SkillsData.supportSkills ? SkillsData.supportSkills[skillId] : null;
+        return {
+          id: skillId,
+          name: skill ? skill.name : skillId,
+          tags: skill ? [...(skill.tags || [])] : [],
+          element: skill ? skill.element || null : null
+        };
+      }),
+      supportState: player.supportSkillState || {},
+      activeEffects: (player.activeSkillEffects || []).map((effect) => ({
+        skillId: effect.skillId,
+        remainingMs: StateSnapshot.getRemainingMs(scene, effect.expiresAt),
+        nextTickInMs: StateSnapshot.getRemainingMs(scene, effect.nextTickAt),
+        radius: effect.radius || null
+      })),
+      reflect: player.activeReflect
+        ? {
+          skillId: player.activeReflect.skillId,
+          remainingMs: StateSnapshot.getRemainingMs(scene, player.activeReflect.expiresAt),
+          reflectPercent: player.activeReflect.reflectPercent || 1
+        }
+        : null,
+      stats: player.skillStats || {}
+    };
+  }
+
+  static getSkillCooldownMs(scene, skill) {
+    const reduction = scene.player.skillStats ? scene.player.skillStats.cooldownReductionPercent || 0 : 0;
+    const floorMs = window.SkillsData && SkillsData.skillCooldownFloorMs !== undefined
+      ? SkillsData.skillCooldownFloorMs
+      : 250;
+    return Math.max(floorMs, Math.round((skill.cooldownMs || 0) * (1 - reduction)));
   }
 
   static createBagSnapshot(bag) {
@@ -63,7 +136,28 @@ class StateSnapshot {
       used: bag.used,
       items: bag.items.map((item) => ({
         id: item.id,
-        quality: item.quality
+        quality: item.quality,
+        kind: item.kind || 'equipment',
+        itemLevel: item.itemLevel || 1,
+        slot: item.slot || null,
+        qualityRank: item.qualityRank || null,
+        identified: Boolean(item.identified),
+        manualDesignRequired: Boolean(item.manualDesignRequired),
+        baseId: item.identified ? item.baseId || null : null,
+        baseName: item.identified ? item.baseName || null : null,
+        baseTier: item.identified ? item.baseTier || null : null,
+        baseType: item.identified ? item.baseType || null : null,
+        baseStats: item.identified ? { ...(item.baseStats || {}) } : {},
+        affixes: item.identified
+          ? (item.affixes || []).map((affix) => ({
+            id: affix.id,
+            stat: affix.stat || null,
+            tier: affix.tier,
+            value: affix.value,
+            valueType: affix.valueType || 'flat',
+            epicPromoted: Boolean(affix.epicPromoted)
+          }))
+          : []
       }))
     };
   }
@@ -108,9 +202,13 @@ class StateSnapshot {
         const attackRange = scene.player.attackRange || 0;
         return {
           id: entity.id,
+          kind: entity.kind,
           type: entity.type,
           hp: entity.hp === undefined ? null : entity.hp,
           maxHp: entity.maxHp === undefined ? null : entity.maxHp,
+          amount: entity.amount || 0,
+          cost: entity.cost || 0,
+          healRatio: entity.healRatio || 0,
           direction: StateSnapshot.getDirection(scene.player, entity),
           distance: StateSnapshot.getDistance(scene.player, entity),
           attackDistance: attackDistance === null ? null : Math.ceil(attackDistance),
@@ -129,6 +227,7 @@ class StateSnapshot {
         const attackRange = scene.player.attackRange || 0;
         return {
           id: entity.id,
+          kind: entity.kind,
           type: entity.type,
           hp: entity.hp === undefined ? null : entity.hp,
           maxHp: entity.maxHp === undefined ? null : entity.maxHp,

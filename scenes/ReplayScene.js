@@ -19,7 +19,7 @@ class ReplayScene extends Phaser.Scene {
       events: []
     };
 
-    this.add.text(48, 42, '复盘索引', {
+    this.add.text(48, 42, '开发者事件复盘', {
       fontSize: '30px',
       color: '#f2eee2'
     });

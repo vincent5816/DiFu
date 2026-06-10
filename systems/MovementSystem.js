@@ -25,7 +25,7 @@ class MovementSystem {
     }
 
     this.scene.player.facing = 1;
-    this.scene.player.sprite.x += this.scene.autoAdvanceSpeed * (this.scene.game.loop.delta / 1000);
+    this.scene.player.sprite.x += this.getPlayerMoveSpeed() * this.scene.getRunDeltaSeconds();
     if (this.scene.player.sprite.x >= this.roomExitX) {
       this.scene.player.sprite.x = this.roomExitX;
       if (this.scene.mapSystem.loadNextRoom()) {
@@ -106,8 +106,8 @@ class MovementSystem {
       return;
     }
 
-    const deltaSeconds = this.scene.game.loop.delta / 1000;
-    const speed = this.scene.autoAdvanceSpeed;
+    const deltaSeconds = this.scene.getRunDeltaSeconds();
+    const speed = this.getPlayerMoveSpeed();
     const dx = manualMove.vector.x * speed * deltaSeconds;
     const dy = this.getVerticalStep(manualMove.vector.y, speed * deltaSeconds);
 
@@ -160,14 +160,16 @@ class MovementSystem {
     }
 
     const direction = nextX > currentX ? 1 : -1;
-    const playerHalfWidth = (player.sprite.width || 42) / 2;
+    const playerWidth = player.hitboxWidth || player.sprite.logicalWidth || player.sprite.width || 42;
+    const playerHeight = player.hitboxHeight || player.sprite.logicalHeight || player.sprite.height || 60;
+    const playerHalfWidth = playerWidth / 2;
     const blockingEnemy = this.scene.entities.find((entity) => {
       if (!entity.active || entity.kind !== 'enemy' || !entity.sprite) {
         return false;
       }
 
       const verticalGap = Math.abs(entity.sprite.y - player.sprite.y);
-      const combinedHalfHeight = ((entity.sprite.height || 42) + (player.sprite.height || 42)) / 2;
+      const combinedHalfHeight = ((entity.sprite.height || 42) + playerHeight) / 2;
       if (verticalGap >= combinedHalfHeight) {
         return false;
       }
@@ -418,7 +420,15 @@ class MovementSystem {
       return;
     }
 
-    const step = this.scene.autoAdvanceSpeed * 1.35 * (this.scene.game.loop.delta / 1000);
+    const step = this.getPlayerMoveSpeed() * 1.35 * this.scene.getRunDeltaSeconds();
+    if (step >= distance) {
+      this.scene.player.sprite.x = target.x;
+      this.scene.player.sprite.y = target.y;
+      this.updateEntityLabels();
+      this.completeRetreat();
+      return;
+    }
+
     this.scene.player.sprite.x += (dx / distance) * step;
     this.scene.player.sprite.y += (dy / distance) * step;
     this.updateEntityLabels();
@@ -453,6 +463,10 @@ class MovementSystem {
       x: Math.round(this.scene.player.sprite.x),
       y: Math.round(this.scene.player.sprite.y)
     });
+
+    if (reason === 'attack_range_reached' && this.scene.eventSystem) {
+      this.scene.eventSystem.nextDispatchAt = this.scene.time.now;
+    }
   }
 
   cancelThreatMove(threatTypes, reason = 'threat_resolved') {
@@ -514,6 +528,12 @@ class MovementSystem {
 
     this.scene.player.currentMovementAction = null;
     this.scene.player.movementActionUntil = -Infinity;
+  }
+
+  getPlayerMoveSpeed() {
+    const player = this.scene.player || {};
+    const bonus = player.moveSpeedPercent || 0;
+    return this.scene.autoAdvanceSpeed * Math.max(0.2, 1 + bonus);
   }
 }
 

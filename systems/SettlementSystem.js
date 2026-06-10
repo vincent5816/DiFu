@@ -4,7 +4,7 @@ class SettlementSystem {
   }
 
   createRunSummary(result) {
-    const bagSnapshot = this.scene.inventorySystem.getSnapshot();
+    const bagSnapshot = this.scene.inventorySystem.getSnapshot({ includeHidden: true });
     const items = bagSnapshot.items;
     const lostItems = result === 'death' ? this.scene.inventorySystem.selectDeathLosses(items) : [];
     const lostIds = new Set(lostItems.map((item) => item.id));
@@ -18,6 +18,7 @@ class SettlementSystem {
       hp: Math.ceil(this.scene.player.hp),
       maxHp: this.scene.player.maxHp,
       gold: this.scene.player.gold,
+      equipment: this.scene.equipmentSystem ? this.scene.equipmentSystem.getSnapshot() : {},
       bag: {
         slots: bagSnapshot.slots,
         used: keptItems.length,

@@ -88,6 +88,10 @@ class EventSystem {
       this.pendingEntityId = null;
       this.scene.isEncounterLocked = false;
     }
+
+    if (!encounter && !this.pendingEntityId && this.scene.isEncounterLocked && !this.hasActiveBlockingState()) {
+      this.scene.isEncounterLocked = false;
+    }
   }
 
   dispatch(event) {
@@ -244,11 +248,32 @@ class EventSystem {
           this.shouldDispatchEncounter(entity);
       })
       .sort((a, b) => {
+        const priorityDelta = this.getEncounterPriority(a) - this.getEncounterPriority(b);
+        if (priorityDelta !== 0) {
+          return priorityDelta;
+        }
+
         return this.getEncounterDistance(a) - this.getEncounterDistance(b);
       })[0] || null;
   }
 
+  getEncounterPriority(entity) {
+    const priorities = {
+      chest: 0,
+      heal_point: 1,
+      paper_money: 2,
+      loot: 3,
+      enemy: 3,
+      return_point: 4
+    };
+    return priorities[entity.kind] === undefined ? 10 : priorities[entity.kind];
+  }
+
   shouldDispatchEncounter(entity) {
+    if (entity.kind === 'paper_money') {
+      return StateSnapshot.isInVision(this.scene.player, entity, this.scene.visionRadius);
+    }
+
     if (this.isActiveCombatEnemyTarget(entity)) {
       return true;
     }
@@ -279,18 +304,29 @@ class EventSystem {
   }
 
   isEncounterKind(kind) {
-    return kind === 'enemy' || kind === 'chest' || kind === 'loot' || kind === 'return_point';
+    return kind === 'enemy' ||
+      kind === 'chest' ||
+      kind === 'paper_money' ||
+      kind === 'loot' ||
+      kind === 'heal_point' ||
+      kind === 'return_point';
   }
 
   getEncounterEventType(entity) {
     if (entity.kind === 'return_point') {
       return 'ENCOUNTER_RETURN_POINT';
     }
+    if (entity.kind === 'heal_point') {
+      return 'ENCOUNTER_HEAL_POINT';
+    }
     if (entity.kind === 'chest') {
       return 'ENCOUNTER_CHEST';
     }
     if (entity.kind === 'loot') {
       return 'ENCOUNTER_LOOT';
+    }
+    if (entity.kind === 'paper_money') {
+      return 'ENCOUNTER_PAPER_MONEY';
     }
     return 'ENCOUNTER_ENEMY';
   }
@@ -299,6 +335,11 @@ class EventSystem {
     return snapshot.event.type === 'STATE_HP_LOW' &&
       command.action === 'WAIT' &&
       this.scene.player.hp / this.scene.player.maxHp <= this.scene.strategyConfig.hpLowThreshold;
+  }
+
+  hasActiveBlockingState() {
+    return this.activeStateEvents.has('STATE_HP_LOW') ||
+      this.activeStateEvents.has('STATE_BAG_FULL');
   }
 
   detectStateEvent() {
@@ -375,6 +416,22 @@ class EventSystem {
 
   clearStateEvent(type) {
     this.activeStateEvents.delete(type);
+  }
+
+  getDebugSnapshot() {
+    return {
+      enabled: this.enabled,
+      pendingEntityId: this.pendingEntityId,
+      nextDispatchAt: Math.round(this.nextDispatchAt || 0),
+      dispatchCooldown: this.dispatchCooldown,
+      handledEntityEvents: Array.from(this.handledEntityEvents),
+      activeStateEvents: Array.from(this.activeStateEvents),
+      visibleEntityIds: Array.from(this.visibleEntityIds),
+      stateEventCooldowns: Array.from(this.stateEventCooldowns.entries()).map(([type, until]) => ({
+        type,
+        until: Math.round(until)
+      }))
+    };
   }
 
   formatVision(vision) {

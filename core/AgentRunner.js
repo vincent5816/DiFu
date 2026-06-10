@@ -4,10 +4,23 @@ class AgentRunner {
   }
 
   run(snapshot) {
+    const systemCommand = this.getSystemCommand(snapshot);
+    if (systemCommand) {
+      return this.annotateCommand(systemCommand, 'system');
+    }
+
     const externalAgent = this.getExternalAgent();
     if (externalAgent) {
       const command = this.runStrategy(externalAgent, snapshot, 'external agent');
       if (command) {
+        const bossOverride = this.getBossDefendOverride(snapshot, command);
+        if (bossOverride) {
+          return this.annotateCommand(bossOverride, 'boss_safety');
+        }
+        const defendOverride = this.getEncounterDefendOverride(snapshot, command);
+        if (defendOverride) {
+          return this.annotateCommand(defendOverride, 'defend_safety');
+        }
         return this.annotateCommand(command, 'external');
       }
     }
@@ -17,6 +30,14 @@ class AgentRunner {
     if (typeof strategy === 'function' && !this.isBuiltInDefaultStrategy(strategy)) {
       const command = this.runStrategy(strategy, snapshot, this.strategyName);
       if (command) {
+        const bossOverride = this.getBossDefendOverride(snapshot, command);
+        if (bossOverride) {
+          return this.annotateCommand(bossOverride, 'boss_safety');
+        }
+        const defendOverride = this.getEncounterDefendOverride(snapshot, command);
+        if (defendOverride) {
+          return this.annotateCommand(defendOverride, 'defend_safety');
+        }
         return this.annotateCommand(command, 'user');
       }
     }
@@ -37,6 +58,25 @@ class AgentRunner {
     }
 
     return this.annotateCommand(this.getMetaCommand(snapshot), 'meta');
+  }
+
+  getSystemCommand(snapshot) {
+    if (!snapshot || !snapshot.event) {
+      return null;
+    }
+
+    switch (snapshot.event.type) {
+      case 'STATE_NEW_ROOM':
+      case 'ENCOUNTER_CHEST':
+      case 'ENCOUNTER_LOOT':
+      case 'ENCOUNTER_PAPER_MONEY':
+      case 'ENCOUNTER_HEAL_POINT':
+      case 'ENCOUNTER_RETURN_POINT':
+      case 'STATE_BAG_FULL':
+        return this.getMetaCommand(snapshot);
+      default:
+        return null;
+    }
   }
 
   annotateCommand(command, source) {
@@ -65,6 +105,98 @@ class AgentRunner {
     return window.StrategyCompiler &&
       typeof window.StrategyCompiler.isDefaultStrategy === 'function' &&
       window.StrategyCompiler.isDefaultStrategy(strategy);
+  }
+
+  getBossDefendOverride(snapshot, command) {
+    if (!snapshot || !snapshot.event || snapshot.event.type !== 'ENCOUNTER_ENEMY') {
+      return null;
+    }
+
+    if (!command || Array.isArray(command) || Array.isArray(command.actions) || Array.isArray(command.commands)) {
+      return null;
+    }
+
+    if (command.action !== 'DEFEND') {
+      return null;
+    }
+
+    const boss = this.findNearestVisionEntity(snapshot, ['boss']) ||
+      this.findNearestKnownEntity(snapshot, ['boss']);
+    if (!boss || boss.id !== snapshot.event.entityId || !boss.inAttackRange) {
+      return null;
+    }
+
+    if (snapshot.player && snapshot.player.attackCooldownRemainingMs > 0) {
+      return null;
+    }
+
+    return { action: 'ATTACK', targetId: boss.id, method: 'normal' };
+  }
+
+  getEncounterDefendOverride(snapshot, command) {
+    if (!snapshot || !snapshot.event || snapshot.event.type !== 'ENCOUNTER_ENEMY') {
+      return null;
+    }
+
+    if (!command || Array.isArray(command) || Array.isArray(command.actions) || Array.isArray(command.commands)) {
+      return null;
+    }
+
+    if (command.action !== 'DEFEND') {
+      return null;
+    }
+
+    const target = this.findEncounterTarget(snapshot);
+    if (!target || target.id !== snapshot.event.entityId) {
+      return null;
+    }
+
+    const activeSkill = snapshot.player && snapshot.player.skills
+      ? snapshot.player.skills.activeSkill
+      : null;
+    if (
+      activeSkill &&
+      activeSkill.ready &&
+      snapshot.player.mp >= (activeSkill.mpCost || 0)
+    ) {
+      return { action: 'SKILL', targetId: target.id, skillId: activeSkill.id };
+    }
+
+    if (
+      target.inAttackRange &&
+      snapshot.player &&
+      snapshot.player.attackCooldownRemainingMs <= 0
+    ) {
+      return { action: 'ATTACK', targetId: target.id, method: 'normal' };
+    }
+
+    if (snapshot.player && snapshot.player.isDefending) {
+      const direction = this.getHorizontalDirection(target.direction);
+      if (direction) {
+        return { action: 'MOVE', direction, durationMs: 260, targetId: target.id, stopAtAttackRange: true };
+      }
+      return { action: 'WAIT' };
+    }
+
+    return null;
+  }
+
+  findEncounterTarget(snapshot) {
+    const entityId = snapshot && snapshot.event ? snapshot.event.entityId : null;
+    if (!entityId) {
+      return null;
+    }
+
+    const visible = Array.isArray(snapshot.vision)
+      ? snapshot.vision.find((entity) => entity.id === entityId)
+      : null;
+    if (visible) {
+      return visible;
+    }
+
+    return Array.isArray(snapshot.knownEnemies)
+      ? snapshot.knownEnemies.find((entity) => entity.id === entityId) || null
+      : null;
   }
 
   getDefaultBossCommand(snapshot) {
@@ -121,7 +253,7 @@ class AgentRunner {
 
     if (enemy.inAttackRange) {
       if (snapshot.player && snapshot.player.attackCooldownRemainingMs > 0) {
-        return { action: 'WAIT' };
+        return this.getEnemyCooldownFootworkCommand(enemy, snapshot.player.attackRange || enemy.attackRange || 0);
       }
 
       return { action: 'ATTACK', targetId: enemy.id, method: 'normal' };
@@ -162,6 +294,34 @@ class AgentRunner {
 
     if (attackDistance > farBand && towardDirection) {
       return { action: 'MOVE', direction: towardDirection, durationMs: 160 };
+    }
+
+    return { action: 'WAIT' };
+  }
+
+  getEnemyCooldownFootworkCommand(enemy, attackRange) {
+    const attackDistance = enemy.attackDistance;
+    if (attackDistance === null || attackDistance === undefined) {
+      return { action: 'WAIT' };
+    }
+
+    const enemyType = String(enemy.type || '');
+    const shouldKeepSpace = enemyType.startsWith('melee_') || enemyType.startsWith('contact_');
+    if (!shouldKeepSpace) {
+      return { action: 'WAIT' };
+    }
+
+    const towardDirection = this.getHorizontalDirection(enemy.direction);
+    const awayDirection = this.getOppositeHorizontalDirection(enemy.direction);
+    const nearBand = attackRange * 0.55;
+    const farBand = attackRange * 0.88;
+
+    if (attackDistance < nearBand && awayDirection) {
+      return { action: 'MOVE', direction: awayDirection, durationMs: 150 };
+    }
+
+    if (attackDistance > farBand && towardDirection) {
+      return { action: 'MOVE', direction: towardDirection, durationMs: 140, targetId: enemy.id, stopAtAttackRange: true };
     }
 
     return { action: 'WAIT' };
@@ -284,6 +444,7 @@ class AgentRunner {
     const eventType = snapshot && snapshot.event ? snapshot.event.type : null;
     const entityId = snapshot && snapshot.event ? snapshot.event.entityId : null;
     const nearestEnemy = this.findNearestVisionEntity(snapshot, ['enemy', 'boss']);
+    const nearestHealPoint = this.findNearestVisionEntity(snapshot, ['supply_heal_point']);
 
     switch (eventType) {
       case 'ENCOUNTER_ENEMY':
@@ -292,7 +453,11 @@ class AgentRunner {
         return { action: 'MOVE', direction: 'right' };
       case 'ENCOUNTER_CHEST':
         return { action: 'OPEN', targetId: entityId };
+      case 'ENCOUNTER_HEAL_POINT':
+        return { action: 'USE', targetId: entityId };
       case 'ENCOUNTER_LOOT':
+        return { action: 'PICKUP', targetId: entityId };
+      case 'ENCOUNTER_PAPER_MONEY':
         return { action: 'PICKUP', targetId: entityId };
       case 'ENCOUNTER_CROSSROAD':
         return { action: 'MOVE', direction: Phaser.Utils.Array.GetRandom(['left', 'right', 'up', 'down']) };
@@ -329,6 +494,10 @@ class AgentRunner {
       case 'STATE_BAG_FULL':
         return this.getBagFullCommand(snapshot);
       case 'STATE_HP_LOW':
+        if (nearestHealPoint && nearestHealPoint.distance === 'near') {
+          return { action: 'USE', targetId: nearestHealPoint.id };
+        }
+        return { action: 'MOVE', direction: 'right' };
       case 'STATE_MP_THRESHOLD':
       case 'STATE_GOLD_THRESHOLD':
       case 'STATE_BUFF_EXPIRED':
@@ -344,10 +513,29 @@ class AgentRunner {
       Array.isArray(snapshot.player.bag.items)
       ? snapshot.player.bag.items
       : [];
-    const item = items[0];
+    const item = items
+      .slice()
+      .sort((a, b) => {
+        const qualityDiff = this.getEquipmentQualityRank(a.quality) - this.getEquipmentQualityRank(b.quality);
+        if (qualityDiff !== 0) {
+          return qualityDiff;
+        }
+        return String(a.id).localeCompare(String(b.id));
+      })[0];
     return item
       ? { action: 'DISCARD', itemId: item.id }
       : { action: 'WAIT' };
+  }
+
+  getEquipmentQualityRank(quality) {
+    const ranks = {
+      normal: 1,
+      magic: 2,
+      rare: 3,
+      epic: 4,
+      legendary: 5
+    };
+    return ranks[quality] || 0;
   }
 
   shouldRespondToProjectile(snapshot) {

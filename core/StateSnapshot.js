@@ -1,18 +1,33 @@
 class StateSnapshot {
   static create(scene, event) {
-    return {
+    return StateSnapshot.measure(scene, 'StateSnapshot.create', {
+      eventType: event.type,
+      entityId: event.entityId || null
+    }, () => ({
       event: {
         type: event.type,
         entityId: event.entityId || null,
         details: event.details || {}
       },
-      player: StateSnapshot.createPlayerSnapshot(scene),
+      player: StateSnapshot.measure(scene, 'StateSnapshot.player', {}, () => StateSnapshot.createPlayerSnapshot(scene)),
       location: StateSnapshot.createLocationSnapshot(scene),
-      vision: StateSnapshot.createVisionSnapshot(scene),
-      knownEnemies: StateSnapshot.createKnownEnemySnapshot(scene),
-      combat: StateSnapshot.createCombatSnapshot(scene),
+      vision: StateSnapshot.measure(scene, 'StateSnapshot.vision', {}, () => StateSnapshot.createVisionSnapshot(scene)),
+      knownEnemies: StateSnapshot.measure(scene, 'StateSnapshot.knownEnemies', {}, () => StateSnapshot.createKnownEnemySnapshot(scene)),
+      combat: StateSnapshot.measure(scene, 'StateSnapshot.combat', {}, () => StateSnapshot.createCombatSnapshot(scene)),
       strategyConfig: StateSnapshot.createStrategyConfigSnapshot(scene)
-    };
+    }));
+  }
+
+  static measure(scene, label, context, callback) {
+    const monitor = globalThis.PerformanceMonitor;
+    if (!monitor) {
+      return callback();
+    }
+    return monitor.measure(label, {
+      roomId: scene.currentRoomId,
+      floor: scene.currentFloor,
+      ...context
+    }, callback);
   }
 
   static createPlayerSnapshot(scene) {

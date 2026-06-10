@@ -16,102 +16,121 @@ class EventSystem {
   }
 
   update() {
-    this.detectVisionChanges();
-    this.updateReturnPointDistance();
+    return this.measure('EventSystem.update', {}, () => {
+      this.detectVisionChanges();
+      this.updateReturnPointDistance();
 
-    if (this.scene.isRetreating) {
-      return;
-    }
+      if (this.scene.isRetreating) {
+        return;
+      }
 
-    if (!this.enabled) {
-      return;
-    }
+      if (!this.enabled) {
+        return;
+      }
 
-    if (this.scene.player.combatHoldSourceId) {
-      return;
-    }
+      if (this.scene.player.combatHoldSourceId) {
+        return;
+      }
 
-    const combatThreat = this.scene.combatSystem.consumeThreatEvent(this.scene.strategyConfig);
-    if (combatThreat) {
-      this.scene.isEncounterLocked = true;
-      this.nextDispatchAt = this.scene.time.now + 80;
-      this.dispatch({
-        type: 'STATE_COMBAT_THREAT',
-        entityId: combatThreat.sourceId,
-        details: {
-          threatType: combatThreat.type,
-          sourceType: combatThreat.sourceType,
-          ...combatThreat.details
-        }
-      });
-      return;
-    }
+      const combatThreat = this.scene.combatSystem.consumeThreatEvent(this.scene.strategyConfig);
+      if (combatThreat) {
+        this.scene.isEncounterLocked = true;
+        this.nextDispatchAt = this.scene.time.now + 80;
+        this.dispatch({
+          type: 'STATE_COMBAT_THREAT',
+          entityId: combatThreat.sourceId,
+          details: {
+            threatType: combatThreat.type,
+            sourceType: combatThreat.sourceType,
+            ...combatThreat.details
+          }
+        });
+        return;
+      }
 
-    if (this.scene.time.now < this.nextDispatchAt) {
-      return;
-    }
+      if (this.scene.time.now < this.nextDispatchAt) {
+        return;
+      }
 
-    if (this.scene.pendingNewRoomEvent) {
-      this.scene.pendingNewRoomEvent = false;
-      this.scene.isEncounterLocked = true;
-      this.nextDispatchAt = this.scene.time.now + this.dispatchCooldown;
-      this.dispatch({
-        type: 'STATE_NEW_ROOM',
-        entityId: null
-      });
-      return;
-    }
+      if (this.scene.pendingNewRoomEvent) {
+        this.scene.pendingNewRoomEvent = false;
+        this.scene.isEncounterLocked = true;
+        this.nextDispatchAt = this.scene.time.now + this.dispatchCooldown;
+        this.dispatch({
+          type: 'STATE_NEW_ROOM',
+          entityId: null
+        });
+        return;
+      }
 
-    const stateEvent = this.detectStateEvent();
-    if (stateEvent) {
-      this.scene.isEncounterLocked = true;
-      this.nextDispatchAt = this.scene.time.now + this.dispatchCooldown;
-      this.dispatch(stateEvent);
-      return;
-    }
+      const stateEvent = this.detectStateEvent();
+      if (stateEvent) {
+        this.scene.isEncounterLocked = true;
+        this.nextDispatchAt = this.scene.time.now + this.dispatchCooldown;
+        this.dispatch(stateEvent);
+        return;
+      }
 
-    const encounter = this.findEncounterEntity();
+      const encounter = this.findEncounterEntity();
 
-    if (encounter && !this.handledEntityEvents.has(encounter.id)) {
-      this.pendingEntityId = encounter.id;
-      this.scene.isEncounterLocked = true;
-      this.nextDispatchAt = this.scene.time.now + this.dispatchCooldown;
-      this.scene.unlockCodexForEntity(encounter);
-      this.dispatch({
-        type: this.getEncounterEventType(encounter),
-        entityId: encounter.id
-      });
-      return;
-    }
+      if (encounter && !this.handledEntityEvents.has(encounter.id)) {
+        this.pendingEntityId = encounter.id;
+        this.scene.isEncounterLocked = true;
+        this.nextDispatchAt = this.scene.time.now + this.dispatchCooldown;
+        this.scene.unlockCodexForEntity(encounter);
+        this.dispatch({
+          type: this.getEncounterEventType(encounter),
+          entityId: encounter.id
+        });
+        return;
+      }
 
-    if (!encounter && this.pendingEntityId) {
-      this.pendingEntityId = null;
-      this.scene.isEncounterLocked = false;
-    }
+      if (!encounter && this.pendingEntityId) {
+        this.pendingEntityId = null;
+        this.scene.isEncounterLocked = false;
+      }
 
-    if (!encounter && !this.pendingEntityId && this.scene.isEncounterLocked && !this.hasActiveBlockingState()) {
-      this.scene.isEncounterLocked = false;
-    }
+      if (!encounter && !this.pendingEntityId && this.scene.isEncounterLocked && !this.hasActiveBlockingState()) {
+        this.scene.isEncounterLocked = false;
+      }
+    });
   }
 
   dispatch(event) {
-    console.log('[EventSystem] Event triggered:', event);
-    this.scene.recordRunEvent(event.type, {
-      entityId: event.entityId || null,
-      ...(event.details || {})
-    });
-    this.scene.addLog(`Event: ${event.type} (${event.entityId || 'none'})`);
-    const snapshot = StateSnapshot.create(this.scene, event);
-    console.log('[StateSnapshot]', snapshot);
-    this.scene.addLog(`Snapshot: vision=${snapshot.vision.length}, hp=${snapshot.player.hp}/${snapshot.player.maxHp}`);
-    this.scene.addLog(`Vision: ${this.formatVision(snapshot.vision)}`);
-    const command = this.agentRunner.run(snapshot);
-    console.log('[AgentRunner] Command returned:', command);
-    const plan = this.createCommandPlan(command, snapshot);
-    this.scene.addLog(`Agent: ${plan.map((entry) => entry.command.action).join(' -> ')}`);
+    return this.measure('EventSystem.dispatch', {
+      eventType: event.type,
+      entityId: event.entityId || null
+    }, () => {
+      console.log('[EventSystem] Event triggered:', event);
+      this.scene.recordRunEvent(event.type, {
+        entityId: event.entityId || null,
+        ...(event.details || {})
+      });
+      this.scene.addLog(`Event: ${event.type} (${event.entityId || 'none'})`);
+      const snapshot = StateSnapshot.create(this.scene, event);
+      console.log('[StateSnapshot]', snapshot);
+      this.scene.addLog(`Snapshot: vision=${snapshot.vision.length}, hp=${snapshot.player.hp}/${snapshot.player.maxHp}`);
+      this.scene.addLog(`Vision: ${this.formatVision(snapshot.vision)}`);
+      const command = this.measure('AgentRunner.run', { eventType: event.type }, () => this.agentRunner.run(snapshot));
+      console.log('[AgentRunner] Command returned:', command);
+      const plan = this.measure('EventSystem.createCommandPlan', { eventType: event.type }, () => this.createCommandPlan(command, snapshot));
+      this.scene.addLog(`Agent: ${plan.map((entry) => entry.command.action).join(' -> ')}`);
 
-    this.enabled = false;
-    this.executeCommandPlan(plan, snapshot, event);
+      this.enabled = false;
+      this.executeCommandPlan(plan, snapshot, event);
+    });
+  }
+
+  measure(label, context, callback) {
+    const monitor = globalThis.PerformanceMonitor;
+    if (!monitor) {
+      return callback();
+    }
+    return monitor.measure(label, {
+      roomId: this.scene.currentRoomId,
+      floor: this.scene.currentFloor,
+      ...context
+    }, callback);
   }
 
   createCommandPlan(result, snapshot) {

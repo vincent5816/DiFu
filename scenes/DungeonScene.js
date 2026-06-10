@@ -365,10 +365,25 @@ class DungeonScene extends Phaser.Scene {
   }
 
   recordRunEvent(type, details = {}) {
-    this.runRecorder.record(type, details);
-    if (details.sourceType) {
-      ProgressSystem.recordObservedEvent(details.sourceType, type, details);
+    const record = () => {
+      this.runRecorder.record(type, details);
+      if (details.sourceType) {
+        ProgressSystem.recordObservedEvent(details.sourceType, type, details);
+      }
+    };
+
+    const monitor = globalThis.PerformanceMonitor;
+    if (!monitor) {
+      record();
+      return;
     }
+
+    monitor.measure('DungeonScene.recordRunEvent', {
+      roomId: this.currentRoomId,
+      floor: this.currentFloor,
+      eventType: type,
+      sourceType: details.sourceType || null
+    }, record);
   }
 
   hasActiveBoss() {
@@ -748,8 +763,21 @@ class DungeonScene extends Phaser.Scene {
       return;
     }
 
-    const bag = this.inventorySystem.getSnapshot();
-    this.hud.update(this.player, bag);
+    const update = () => {
+      const bag = this.inventorySystem.getSnapshot();
+      this.hud.update(this.player, bag);
+    };
+
+    const monitor = globalThis.PerformanceMonitor;
+    if (!monitor) {
+      update();
+      return;
+    }
+
+    monitor.measure('DungeonScene.updateHud', {
+      roomId: this.currentRoomId,
+      floor: this.currentFloor
+    }, update);
   }
 
   createRunSummary(result) {

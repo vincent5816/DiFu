@@ -89,18 +89,23 @@ class HUD {
   }
 
   showStatus(message) {
-    this.statusText.setText(message);
+    return this.measure('HUD.showStatus', () => {
+      this.statusText.setText(message);
+    });
   }
 
   addLog(message) {
-    this.logLines.push(message);
-    if (this.logLines.length > 8) {
-      this.logLines.shift();
-    }
-    this.logText.setText(this.logLines.join('\n'));
+    return this.measure('HUD.addLog', () => {
+      this.logLines.push(message);
+      if (this.logLines.length > 8) {
+        this.logLines.shift();
+      }
+      this.logText.setText(this.logLines.join('\n'));
+    });
   }
 
   update(player, bag) {
+    return this.measure('HUD.update', () => {
     const hpRatio = Phaser.Math.Clamp(player.hp / player.maxHp, 0, 1);
     const mpRatio = player.maxMp > 0 ? Phaser.Math.Clamp(player.mp / player.maxMp, 0, 1) : 0;
 
@@ -116,6 +121,18 @@ class HUD {
     this.skillText.setText(this.getSkillLine(player));
     this.supportSkillText.setText(this.getSupportSkillLine(player));
     this.equipmentText.setText('装备需返回鉴定后才可穿戴');
+    });
+  }
+
+  measure(label, callback) {
+    const monitor = globalThis.PerformanceMonitor;
+    if (!monitor) {
+      return callback();
+    }
+    return monitor.measure(label, {
+      roomId: this.scene.currentRoomId,
+      floor: this.scene.currentFloor
+    }, callback);
   }
 
   getSkillLine(player) {
